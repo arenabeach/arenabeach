@@ -343,6 +343,11 @@ const AdminPage = () => {
                                     <p className="text-[9px] font-body text-foreground truncate font-medium">
                                       {booking.name.split(" ")[0]}
                                     </p>
+                                    {booking.sport && (
+                                      <p className="text-[8px] font-body text-primary truncate">
+                                        {booking.sport}
+                                      </p>
+                                    )}
                                     <div className="flex items-center justify-center gap-0.5">
                                       {isPendente ? (
                                         <Clock size={8} className="text-amber-600 dark:text-amber-400" />
@@ -380,6 +385,9 @@ const AdminPage = () => {
                                 <p className="text-foreground font-medium truncate">
                                   {booking.name} - {booking.time}
                                 </p>
+                                {booking.sport && (
+                                  <p className="text-primary font-medium truncate">{booking.sport}</p>
+                                )}
                                 <p className="truncate">{booking.phone}</p>
                               </div>
                               <div className="flex gap-1 shrink-0">
