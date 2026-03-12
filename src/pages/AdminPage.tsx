@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { getBookings, updateBookingStatus, deleteBooking, Booking, courtNames, timeSlots } from "@/lib/bookings";
 import { verifyAdminPassword, createSession, isSessionValid, clearSession, isPasswordConfigured } from "@/lib/auth";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,7 @@ const AdminPage = () => {
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<"todos" | Booking["status"]>("todos");
   const [searchTerm, setSearchTerm] = useState("");
   const [tab, setTab] = useState<"quadras" | "lista">("quadras");
@@ -39,13 +40,30 @@ const AdminPage = () => {
     }
   }, []);
 
+  const refreshBookings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getBookings();
+      setBookings(data);
+    } catch {
+      toast.error("Erro ao carregar agendamentos");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (authenticated) {
-      setBookings(getBookings());
+      refreshBookings();
     }
-  }, [authenticated]);
+  }, [authenticated, refreshBookings]);
 
-  const refreshBookings = () => setBookings(getBookings());
+  // Auto-refresh a cada 30 segundos
+  useEffect(() => {
+    if (!authenticated) return;
+    const interval = setInterval(refreshBookings, 30000);
+    return () => clearInterval(interval);
+  }, [authenticated, refreshBookings]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,17 +96,25 @@ const AdminPage = () => {
     toast.success("Sessao encerrada");
   };
 
-  const handleStatus = (id: string, status: Booking["status"]) => {
-    updateBookingStatus(id, status);
-    refreshBookings();
-    toast.success(status === "confirmado" ? "Agendamento confirmado!" : "Agendamento cancelado.");
+  const handleStatus = async (id: string, status: Booking["status"]) => {
+    try {
+      await updateBookingStatus(id, status);
+      await refreshBookings();
+      toast.success(status === "confirmado" ? "Agendamento confirmado!" : "Agendamento cancelado.");
+    } catch {
+      toast.error("Erro ao atualizar status");
+    }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (!window.confirm("Tem certeza que deseja excluir este agendamento?")) return;
-    deleteBooking(id);
-    refreshBookings();
-    toast.success("Agendamento excluido.");
+    try {
+      await deleteBooking(id);
+      await refreshBookings();
+      toast.success("Agendamento excluido.");
+    } catch {
+      toast.error("Erro ao excluir agendamento");
+    }
   };
 
   const filtered = bookings
@@ -201,14 +227,26 @@ const AdminPage = () => {
           >
             <ArrowLeft size={16} /> Voltar
           </motion.button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleLogout}
-            className="font-body gap-1.5 sm:gap-2 rounded-xl text-xs sm:text-sm"
-          >
-            <LogOut size={14} /> Sair
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshBookings}
+              disabled={loading}
+              className="font-body gap-1.5 rounded-xl text-xs sm:text-sm"
+            >
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <CalendarIcon size={14} />}
+              Atualizar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLogout}
+              className="font-body gap-1.5 sm:gap-2 rounded-xl text-xs sm:text-sm"
+            >
+              <LogOut size={14} /> Sair
+            </Button>
+          </div>
         </div>
 
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
@@ -260,8 +298,15 @@ const AdminPage = () => {
             </button>
           </div>
 
+          {loading && (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+              <span className="ml-2 text-sm font-body text-muted-foreground">Carregando...</span>
+            </div>
+          )}
+
           {/* =================== TAB: QUADRAS (Todas) =================== */}
-          {tab === "quadras" && (
+          {tab === "quadras" && !loading && (
             <div className="space-y-6">
               {/* Date navigator */}
               <div className="flex items-center justify-center gap-2 sm:gap-3">
@@ -419,7 +464,7 @@ const AdminPage = () => {
           )}
 
           {/* =================== TAB: LISTA =================== */}
-          {tab === "lista" && (
+          {tab === "lista" && !loading && (
             <div>
               {/* Search + Filters */}
               <div className="flex flex-col gap-2 sm:gap-3 mb-4 sm:mb-6">

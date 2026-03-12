@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { format, addDays } from "date-fns";
@@ -7,14 +7,14 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CalendarIcon, ArrowLeft, Copy, Check, Shield, Clock } from "lucide-react";
+import { CalendarIcon, ArrowLeft, Copy, Check, Shield, Clock, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   courtNames,
   courtPrices,
   timeSlots,
-  isTimeSlotBooked,
   addBooking,
+  getAllBookedSlots,
   societyDurations,
   sports,
 } from "@/lib/bookings";
@@ -67,8 +67,24 @@ const BookingPage = () => {
   const [selectedDuration, setSelectedDuration] = useState<DurationOption | null>(null);
   const [selectedSport, setSelectedSport] = useState<Sport | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<string | null>(null);
+  const [bookedSlots, setBookedSlots] = useState<Record<string, Set<string>>>({});
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const dateStr = date ? format(date, "yyyy-MM-dd") : "";
+
+  // Carregar slots ocupados quando a data mudar
+  useEffect(() => {
+    if (!dateStr) return;
+    setLoadingSlots(true);
+    getAllBookedSlots(dateStr)
+      .then(setBookedSlots)
+      .finally(() => setLoadingSlots(false));
+  }, [dateStr]);
+
+  const isSlotBooked = (courtId: string, time: string): boolean => {
+    return bookedSlots[courtId]?.has(time) || false;
+  };
 
   const isSociety = selectedCourt === "society";
   const courtName = selectedCourt ? courtNames[selectedCourt] || "" : "";
@@ -115,7 +131,7 @@ const BookingPage = () => {
     setStep(2);
   };
 
-  const handleGoToStep3 = () => {
+  const handleGoToStep3 = async () => {
     if (!name.trim()) {
       toast.error("Informe seu nome!");
       return;
@@ -124,12 +140,18 @@ const BookingPage = () => {
       toast.error("Informe um telefone valido com DDD!");
       return;
     }
+    // Recarregar slots antes de mostrar as quadras
+    if (dateStr) {
+      setLoadingSlots(true);
+      const slots = await getAllBookedSlots(dateStr);
+      setBookedSlots(slots);
+      setLoadingSlots(false);
+    }
     setStep(3);
   };
 
   const handleSelectCourt = (courtId: string) => {
-    // Check if all selected times are available for this court
-    const unavailable = selectedTimes.filter((t) => isTimeSlotBooked(courtId, dateStr, t));
+    const unavailable = selectedTimes.filter((t) => isSlotBooked(courtId, t));
     if (unavailable.length > 0) {
       toast.error(`Horario(s) ${unavailable.join(", ")} indisponivel(is) nessa quadra!`);
       return;
@@ -138,7 +160,7 @@ const BookingPage = () => {
     setSelectedDuration(null);
   };
 
-  const handleConfirmBooking = () => {
+  const handleConfirmBooking = async () => {
     if (!date || selectedTimes.length === 0 || !name || !phone || !selectedCourt) {
       toast.error("Preencha todos os campos!");
       return;
@@ -148,39 +170,57 @@ const BookingPage = () => {
       return;
     }
 
-    const timeDisplay = selectedTimes.join(", ");
+    setSubmitting(true);
 
-    const booking = addBooking({
-      courtId: selectedCourt,
-      courtName,
-      sport: isSociety ? undefined : (selectedSport || undefined),
-      date: dateStr,
-      time: timeDisplay,
-      name: name.trim(),
-      phone,
-    });
+    try {
+      // Verificar disponibilidade em tempo real antes de confirmar
+      const freshSlots = await getAllBookedSlots(dateStr);
+      const unavailable = selectedTimes.filter((t) => freshSlots[selectedCourt]?.has(t));
+      if (unavailable.length > 0) {
+        toast.error(`Horario(s) ${unavailable.join(", ")} acabou de ser reservado! Escolha outro horario.`);
+        setBookedSlots(freshSlots);
+        setSubmitting(false);
+        return;
+      }
 
-    const durationLabel = isSociety
-      ? (selectedDuration ? `\nDuracao: ${selectedDuration.label}` : "")
-      : ` (${formatDuration(selectedTimes.length)})`;
+      const timeDisplay = selectedTimes.join(", ");
 
-    const sportInfo = !isSociety && selectedSport ? `\nEsporte: ${selectedSport}` : "";
+      const booking = await addBooking({
+        courtId: selectedCourt,
+        courtName,
+        sport: isSociety ? undefined : (selectedSport || undefined),
+        date: dateStr,
+        time: timeDisplay,
+        name: name.trim(),
+        phone,
+      });
 
-    const message = encodeURIComponent(
-      `Ola! Fiz um agendamento na Alça Beach Arena:\n\n` +
-      `Quadra: ${courtName}${sportInfo}\n` +
-      `Data: ${format(date, "dd/MM/yyyy")}\n` +
-      `Horario: ${timeDisplay}${durationLabel}\n` +
-      `Nome: ${name}\n` +
-      `Telefone: ${phone}\n` +
-      `Valor: ${totalPrice}\n\n` +
-      `ID do agendamento: ${booking.id}\n\n` +
-      `Segue o comprovante do PIX em anexo.`
-    );
+      const durationLabel = isSociety
+        ? (selectedDuration ? `\nDuracao: ${selectedDuration.label}` : "")
+        : ` (${formatDuration(selectedTimes.length)})`;
 
-    window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${message}`, "_blank");
-    toast.success("Agendamento criado! Envie o comprovante pelo WhatsApp.");
-    navigate("/");
+      const sportInfo = !isSociety && selectedSport ? `\nEsporte: ${selectedSport}` : "";
+
+      const message = encodeURIComponent(
+        `Ola! Fiz um agendamento na Alça Beach Arena:\n\n` +
+        `Quadra: ${courtName}${sportInfo}\n` +
+        `Data: ${format(date, "dd/MM/yyyy")}\n` +
+        `Horario: ${timeDisplay}${durationLabel}\n` +
+        `Nome: ${name}\n` +
+        `Telefone: ${phone}\n` +
+        `Valor: ${totalPrice}\n\n` +
+        `ID do agendamento: ${booking.id}\n\n` +
+        `Segue o comprovante do PIX em anexo.`
+      );
+
+      window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${message}`, "_blank");
+      toast.success("Agendamento criado! Envie o comprovante pelo WhatsApp.");
+      navigate("/");
+    } catch {
+      toast.error("Erro ao criar agendamento. Tente novamente.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const stepLabels = ["Data e Horario", "Seus Dados", "Quadra e Pagamento"];
@@ -313,25 +353,32 @@ const BookingPage = () => {
                       </span>
                     )}
                   </div>
-                  <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-1.5 sm:gap-2">
-                    {timeSlots.map((t) => {
-                      const isSelected = selectedTimes.includes(t);
-                      return (
-                        <button
-                          key={t}
-                          onClick={() => handleToggleTime(t)}
-                          className={cn(
-                            "py-2.5 rounded-xl text-xs sm:text-sm font-body font-medium transition-all duration-200",
-                            isSelected
-                              ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 scale-105"
-                              : "bg-card border border-border hover:border-primary/50 hover:text-primary hover:bg-primary/5"
-                          )}
-                        >
-                          {t}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {loadingSlots ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                      <span className="ml-2 text-sm font-body text-muted-foreground">Carregando horarios...</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-1.5 sm:gap-2">
+                      {timeSlots.map((t) => {
+                        const isSelected = selectedTimes.includes(t);
+                        return (
+                          <button
+                            key={t}
+                            onClick={() => handleToggleTime(t)}
+                            className={cn(
+                              "py-2.5 rounded-xl text-xs sm:text-sm font-body font-medium transition-all duration-200",
+                              isSelected
+                                ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 scale-105"
+                                : "bg-card border border-border hover:border-primary/50 hover:text-primary hover:bg-primary/5"
+                            )}
+                          >
+                            {t}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                   {selectedTimes.length > 0 && selectedTimes.length < 2 && (
                     <p className="text-xs text-amber-500 font-body mt-2 font-medium">
                       Selecione pelo menos 2 horarios (minimo 1 hora)
@@ -460,78 +507,84 @@ const BookingPage = () => {
                   Veja a disponibilidade para {date && format(date, "dd/MM/yyyy")} e selecione sua quadra
                 </p>
 
-                <div className="space-y-3 max-h-[450px] overflow-y-auto pr-1">
-                  {Object.entries(courtNames).map(([id, cName]) => {
-                    const availableSlots = timeSlots.filter(
-                      (t) => !isTimeSlotBooked(id, dateStr, t)
-                    );
-                    const bookedSlots = timeSlots.length - availableSlots.length;
-                    // Check if all selected times are available for this court
-                    const hasConflict = selectedTimes.some((t) => isTimeSlotBooked(id, dateStr, t));
-                    const isSelected = selectedCourt === id;
+                {loadingSlots ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                    <span className="ml-2 text-sm font-body text-muted-foreground">Carregando disponibilidade...</span>
+                  </div>
+                ) : (
+                  <div className="space-y-3 max-h-[450px] overflow-y-auto pr-1">
+                    {Object.entries(courtNames).map(([id, cName]) => {
+                      const availableSlots = timeSlots.filter(
+                        (t) => !isSlotBooked(id, t)
+                      );
+                      const bookedCount = timeSlots.length - availableSlots.length;
+                      const hasConflict = selectedTimes.some((t) => isSlotBooked(id, t));
+                      const isSelected = selectedCourt === id;
 
-                    return (
-                      <button
-                        key={id}
-                        onClick={() => handleSelectCourt(id)}
-                        className={cn(
-                          "w-full text-left border rounded-xl p-3 sm:p-4 transition-all duration-200",
-                          isSelected
-                            ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
-                            : hasConflict
-                            ? "border-border/50 opacity-60"
-                            : "border-border/50 hover:border-primary/40 hover:bg-primary/5"
-                        )}
-                      >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            {isSelected && (
-                              <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                                <Check size={12} className="text-primary-foreground" />
-                              </div>
-                            )}
-                            <span className="font-body font-semibold text-sm text-foreground">{cName}</span>
-                            <span className="text-xs font-body font-semibold text-primary">
-                              {id !== "society"
-                                ? `${courtPrices[id]}/h = ${formatBRL(parseInt(courtPrices[id].replace(/\D/g, ""), 10) * selectedTimes.length / 2)}`
-                                : "A partir de R$ 100"
-                              }
+                      return (
+                        <button
+                          key={id}
+                          onClick={() => handleSelectCourt(id)}
+                          className={cn(
+                            "w-full text-left border rounded-xl p-3 sm:p-4 transition-all duration-200",
+                            isSelected
+                              ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
+                              : hasConflict
+                              ? "border-border/50 opacity-60"
+                              : "border-border/50 hover:border-primary/40 hover:bg-primary/5"
+                          )}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              {isSelected && (
+                                <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                                  <Check size={12} className="text-primary-foreground" />
+                                </div>
+                              )}
+                              <span className="font-body font-semibold text-sm text-foreground">{cName}</span>
+                              <span className="text-xs font-body font-semibold text-primary">
+                                {id !== "society"
+                                  ? `${courtPrices[id]}/h = ${formatBRL(parseInt(courtPrices[id].replace(/\D/g, ""), 10) * selectedTimes.length / 2)}`
+                                  : "A partir de R$ 100"
+                                }
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-body text-muted-foreground">
+                              {availableSlots.length} livres / {bookedCount} ocupados
                             </span>
                           </div>
-                          <span className="text-[10px] font-body text-muted-foreground">
-                            {availableSlots.length} livres / {bookedSlots} ocupados
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-1">
-                          {timeSlots.map((t) => {
-                            const booked = isTimeSlotBooked(id, dateStr, t);
-                            const isMyTime = selectedTimes.includes(t);
-                            return (
-                              <span
-                                key={t}
-                                className={cn(
-                                  "text-[10px] sm:text-xs text-center py-1 rounded-lg font-body",
-                                  booked
-                                    ? "bg-destructive/15 text-destructive/50 line-through"
-                                    : isMyTime
-                                    ? "bg-primary/20 text-primary font-bold ring-1 ring-primary/40"
-                                    : "bg-palm/15 text-palm font-medium"
-                                )}
-                              >
-                                {t}
-                              </span>
-                            );
-                          })}
-                        </div>
-                        {hasConflict && !isSelected && (
-                          <p className="text-[10px] text-destructive font-body mt-1.5">
-                            Seus horarios selecionados nao estao todos disponiveis nesta quadra
-                          </p>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+                          <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-1">
+                            {timeSlots.map((t) => {
+                              const booked = isSlotBooked(id, t);
+                              const isMyTime = selectedTimes.includes(t);
+                              return (
+                                <span
+                                  key={t}
+                                  className={cn(
+                                    "text-[10px] sm:text-xs text-center py-1 rounded-lg font-body",
+                                    booked
+                                      ? "bg-destructive/15 text-destructive/50 line-through"
+                                      : isMyTime
+                                      ? "bg-primary/20 text-primary font-bold ring-1 ring-primary/40"
+                                      : "bg-palm/15 text-palm font-medium"
+                                  )}
+                                >
+                                  {t}
+                                </span>
+                              );
+                            })}
+                          </div>
+                          {hasConflict && !isSelected && (
+                            <p className="text-[10px] text-destructive font-body mt-1.5">
+                              Seus horarios selecionados nao estao todos disponiveis nesta quadra
+                            </p>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
                 <div className="flex items-center gap-4 mt-3">
                   <div className="flex items-center gap-1.5">
@@ -678,17 +731,21 @@ const BookingPage = () => {
                 </Button>
                 <button
                   onClick={handleConfirmBooking}
-                  disabled={!selectedCourt || (isSociety && !selectedDuration)}
+                  disabled={!selectedCourt || (isSociety && !selectedDuration) || submitting}
                   className={cn(
                     "btn-whatsapp btn-pulse flex-1 justify-center py-3 text-base rounded-xl",
-                    (!selectedCourt || (isSociety && !selectedDuration)) && "opacity-50 pointer-events-none"
+                    (!selectedCourt || (isSociety && !selectedDuration) || submitting) && "opacity-50 pointer-events-none"
                   )}
                 >
-                  <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
-                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
-                    <path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.5.5 0 00.611.611l4.458-1.495A11.952 11.952 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-2.325 0-4.49-.693-6.305-1.884l-.44-.292-2.646.887.887-2.646-.292-.44A9.96 9.96 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
-                  </svg>
-                  Enviar Comprovante
+                  {submitting ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
+                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
+                      <path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.5.5 0 00.611.611l4.458-1.495A11.952 11.952 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-2.325 0-4.49-.693-6.305-1.884l-.44-.292-2.646.887.887-2.646-.292-.44A9.96 9.96 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
+                    </svg>
+                  )}
+                  {submitting ? "Enviando..." : "Enviar Comprovante"}
                 </button>
               </div>
             </motion.div>
