@@ -14,6 +14,7 @@ export interface Booking {
   phone: string;
   status: "pendente" | "confirmado" | "cancelado";
   createdAt: string;
+  mpPaymentId?: string;
 }
 
 // Map Supabase row to Booking interface
@@ -28,6 +29,7 @@ const mapRow = (row: Record<string, unknown>): Booking => ({
   phone: row.phone as string,
   status: row.status as Booking["status"],
   createdAt: row.created_at as string,
+  mpPaymentId: (row.mp_payment_id as string) || undefined,
 });
 
 export const getBookings = async (): Promise<Booking[]> => {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { format, addDays } from "date-fns";
@@ -7,7 +7,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CalendarIcon, ArrowLeft, Copy, Check, Shield, Clock, Loader2 } from "lucide-react";
+import { CalendarIcon, ArrowLeft, Copy, Check, Shield, Clock, Loader2, QrCode, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   courtNames,
@@ -23,8 +23,15 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { toast } from "sonner";
 
-const PIX_KEY = "seu-pix@email.com"; // Substituir pela chave PIX real
 const WHATSAPP_NUMBER = "5583999322509";
+
+interface PixPaymentData {
+  paymentId: string;
+  qrCode: string;
+  qrCodeBase64: string;
+  ticketUrl: string;
+  expiresAt: string;
+}
 
 const formatPhone = (value: string): string => {
   const digits = value.replace(/\D/g, "").slice(0, 11);
@@ -63,13 +70,16 @@ const BookingPage = () => {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [copied, setCopied] = useState(false);
   const [selectedDuration, setSelectedDuration] = useState<DurationOption | null>(null);
   const [selectedSport, setSelectedSport] = useState<Sport | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<string | null>(null);
   const [bookedSlots, setBookedSlots] = useState<Record<string, Set<string>>>({});
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [pixData, setPixData] = useState<PixPaymentData | null>(null);
+  const [pixStatus, setPixStatus] = useState<string | null>(null);
+  const [pixCopied, setPixCopied] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const dateStr = date ? format(date, "yyyy-MM-dd") : "";
 
@@ -108,12 +118,38 @@ const BookingPage = () => {
     });
   };
 
-  const handleCopyPix = () => {
-    navigator.clipboard.writeText(PIX_KEY);
-    setCopied(true);
-    toast.success("Chave PIX copiada!");
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyPixCode = () => {
+    if (!pixData?.qrCode) return;
+    navigator.clipboard.writeText(pixData.qrCode);
+    setPixCopied(true);
+    toast.success("Codigo PIX copiado!");
+    setTimeout(() => setPixCopied(false), 2000);
   };
+
+  // Polling para verificar status do pagamento
+  const startPaymentPolling = useCallback((paymentId: string) => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/check-payment?paymentId=${paymentId}`);
+        const data = await res.json();
+        if (data.status === "approved") {
+          setPixStatus("approved");
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          toast.success("Pagamento confirmado! Seu agendamento foi aprovado.");
+        }
+      } catch {
+        // Silently retry on next interval
+      }
+    }, 5000); // Verifica a cada 5 segundos
+  }, []);
+
+  // Limpar polling ao desmontar
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
 
   const handleGoToStep2 = () => {
     if (!date || selectedTimes.length === 0) {
@@ -160,6 +196,17 @@ const BookingPage = () => {
     setSelectedDuration(null);
   };
 
+  // Calcula o valor numerico do total
+  const getTotalAmount = (): number => {
+    if (isSociety && selectedDuration) {
+      return parseFloat(selectedDuration.price.replace(/[^\d,]/g, "").replace(",", "."));
+    }
+    if (selectedCourt) {
+      return parseInt((courtPrices[selectedCourt] || "0").replace(/\D/g, ""), 10) * selectedTimes.length / 2;
+    }
+    return selectedTimes.length * QUADRA_PRICE_PER_SLOT;
+  };
+
   const handleConfirmBooking = async () => {
     if (!date || selectedTimes.length === 0 || !name || !phone || !selectedCourt) {
       toast.error("Preencha todos os campos!");
@@ -185,6 +232,7 @@ const BookingPage = () => {
 
       const timeDisplay = selectedTimes.join(", ");
 
+      // 1. Criar o booking no Supabase
       const booking = await addBooking({
         courtId: selectedCourt,
         courtName,
@@ -195,32 +243,60 @@ const BookingPage = () => {
         phone,
       });
 
-      const durationLabel = isSociety
-        ? (selectedDuration ? `\nDuracao: ${selectedDuration.label}` : "")
-        : ` (${formatDuration(selectedTimes.length)})`;
+      // 2. Criar cobrança PIX no Mercado Pago
+      const amount = getTotalAmount();
+      const description = `Arena Beach - ${courtName} - ${format(date, "dd/MM/yyyy")} - ${timeDisplay}`;
 
-      const sportInfo = !isSociety && selectedSport ? `\nEsporte: ${selectedSport}` : "";
+      const pixResponse = await fetch("/api/create-pix", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId: booking.id,
+          amount,
+          description,
+        }),
+      });
 
-      const message = encodeURIComponent(
-        `Ola! Fiz um agendamento na Alça Beach Arena:\n\n` +
-        `Quadra: ${courtName}${sportInfo}\n` +
-        `Data: ${format(date, "dd/MM/yyyy")}\n` +
-        `Horario: ${timeDisplay}${durationLabel}\n` +
-        `Nome: ${name}\n` +
-        `Telefone: ${phone}\n` +
-        `Valor: ${totalPrice}\n\n` +
-        `ID do agendamento: ${booking.id}\n\n` +
-        `Segue o comprovante do PIX em anexo.`
-      );
+      const pixResult = await pixResponse.json();
 
-      window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${message}`, "_blank");
-      toast.success("Agendamento criado! Envie o comprovante pelo WhatsApp.");
-      navigate("/");
+      if (!pixResponse.ok) {
+        toast.error(pixResult.error || "Erro ao gerar PIX. Tente novamente.");
+        setSubmitting(false);
+        return;
+      }
+
+      // 3. Mostrar QR Code e iniciar polling
+      setPixData(pixResult);
+      setPixStatus("pending");
+      startPaymentPolling(pixResult.paymentId);
+      toast.success("QR Code PIX gerado! Escaneie para pagar.");
     } catch {
       toast.error("Erro ao criar agendamento. Tente novamente.");
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSendWhatsApp = () => {
+    if (!date || !selectedCourt) return;
+    const timeDisplay = selectedTimes.join(", ");
+    const durationLabel = isSociety
+      ? (selectedDuration ? `\nDuracao: ${selectedDuration.label}` : "")
+      : ` (${formatDuration(selectedTimes.length)})`;
+    const sportInfo = !isSociety && selectedSport ? `\nEsporte: ${selectedSport}` : "";
+
+    const message = encodeURIComponent(
+      `Ola! Fiz um agendamento na Alça Beach Arena:\n\n` +
+      `Quadra: ${courtName}${sportInfo}\n` +
+      `Data: ${format(date, "dd/MM/yyyy")}\n` +
+      `Horario: ${timeDisplay}${durationLabel}\n` +
+      `Nome: ${name}\n` +
+      `Telefone: ${phone}\n` +
+      `Valor: ${totalPrice}\n\n` +
+      `Pagamento via PIX ${pixStatus === "approved" ? "confirmado" : "pendente"}.`
+    );
+
+    window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${message}`, "_blank");
   };
 
   const stepLabels = ["Data e Horario", "Seus Dados", "Quadra e Pagamento"];
@@ -690,64 +766,133 @@ const BookingPage = () => {
                     </div>
                   </div>
 
-                  {/* Payment */}
-                  <div className="glass-card rounded-2xl p-4 sm:p-6">
-                    <h3 className="font-display text-xl sm:text-2xl mb-1">Pagamento via PIX</h3>
-                    <p className="text-sm text-muted-foreground font-body mb-4">
-                      Copie a chave PIX abaixo e faca a transferencia:
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 bg-muted px-4 py-3 rounded-xl text-sm font-body break-all text-foreground">
-                        {PIX_KEY}
-                      </code>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={handleCopyPix}
-                        className="shrink-0 h-11 w-11 rounded-xl"
-                      >
-                        {copied ? <Check size={16} className="text-palm" /> : <Copy size={16} />}
-                      </Button>
-                    </div>
-                  </div>
+                  {/* Payment PIX - QR Code */}
+                  {pixData ? (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="space-y-4"
+                    >
+                      {pixStatus === "approved" ? (
+                        <div className="glass-card rounded-2xl p-6 text-center space-y-4">
+                          <div className="w-16 h-16 rounded-full bg-palm/20 flex items-center justify-center mx-auto">
+                            <CheckCircle2 size={32} className="text-palm" />
+                          </div>
+                          <h3 className="font-display text-xl sm:text-2xl text-palm">Pagamento Confirmado!</h3>
+                          <p className="text-sm text-muted-foreground font-body">
+                            Seu agendamento foi confirmado com sucesso.
+                          </p>
+                          <button
+                            onClick={handleSendWhatsApp}
+                            className="btn-whatsapp btn-pulse w-full justify-center py-3 text-base rounded-xl"
+                          >
+                            <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
+                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
+                              <path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.5.5 0 00.611.611l4.458-1.495A11.952 11.952 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-2.325 0-4.49-.693-6.305-1.884l-.44-.292-2.646.887.887-2.646-.292-.44A9.96 9.96 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
+                            </svg>
+                            Enviar confirmacao no WhatsApp
+                          </button>
+                          <Button
+                            onClick={() => navigate("/")}
+                            variant="outline"
+                            className="w-full h-12 font-body rounded-xl"
+                          >
+                            Voltar ao inicio
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="glass-card rounded-2xl p-4 sm:p-6 text-center space-y-4">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <QrCode size={20} className="text-primary" />
+                            <h3 className="font-display text-xl sm:text-2xl">Pague via PIX</h3>
+                          </div>
+                          <p className="text-sm text-muted-foreground font-body">
+                            Escaneie o QR Code ou copie o codigo para pagar
+                          </p>
 
-                  <div className="glass-card rounded-2xl p-4 flex items-start gap-3">
-                    <Shield size={18} className="text-palm shrink-0 mt-0.5" />
-                    <p className="text-xs font-body text-muted-foreground leading-relaxed">
-                      Seu agendamento ficara pendente ate a confirmacao do pagamento pela arena.
-                      Voce recebera a confirmacao pelo WhatsApp.
-                    </p>
-                  </div>
+                          {/* QR Code Image */}
+                          {pixData.qrCodeBase64 && (
+                            <div className="flex justify-center">
+                              <img
+                                src={`data:image/png;base64,${pixData.qrCodeBase64}`}
+                                alt="QR Code PIX"
+                                className="w-48 h-48 sm:w-56 sm:h-56 rounded-xl border border-border p-2 bg-white"
+                              />
+                            </div>
+                          )}
+
+                          {/* Copia e Cola */}
+                          <div>
+                            <p className="text-xs text-muted-foreground font-body mb-2">PIX Copia e Cola:</p>
+                            <div className="flex items-center gap-2">
+                              <code className="flex-1 bg-muted px-3 py-2.5 rounded-xl text-xs font-body break-all text-foreground max-h-16 overflow-y-auto text-left">
+                                {pixData.qrCode}
+                              </code>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={handleCopyPixCode}
+                                className="shrink-0 h-10 w-10 rounded-xl"
+                              >
+                                {pixCopied ? <Check size={16} className="text-palm" /> : <Copy size={16} />}
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Status indicator */}
+                          <div className="flex items-center justify-center gap-2 py-2">
+                            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                            <span className="text-sm font-body text-muted-foreground">
+                              Aguardando pagamento...
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-muted-foreground font-body">
+                            O pagamento expira em 30 minutos
+                          </p>
+                        </div>
+                      )}
+                    </motion.div>
+                  ) : (
+                    <div className="glass-card rounded-2xl p-4 flex items-start gap-3">
+                      <Shield size={18} className="text-palm shrink-0 mt-0.5" />
+                      <p className="text-xs font-body text-muted-foreground leading-relaxed">
+                        Ao confirmar, sera gerado um QR Code PIX para pagamento.
+                        Seu agendamento sera confirmado automaticamente apos o pagamento.
+                      </p>
+                    </div>
+                  )}
                 </motion.div>
               )}
 
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => { setStep(2); setSelectedCourt(null); setSelectedDuration(null); }}
-                  className="flex-1 h-12 font-body rounded-xl btn-animate"
-                >
-                  Voltar
-                </Button>
-                <button
-                  onClick={handleConfirmBooking}
-                  disabled={!selectedCourt || (isSociety && !selectedDuration) || submitting}
-                  className={cn(
-                    "btn-whatsapp btn-pulse flex-1 justify-center py-3 text-base rounded-xl",
-                    (!selectedCourt || (isSociety && !selectedDuration) || submitting) && "opacity-50 pointer-events-none"
-                  )}
-                >
-                  {submitting ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <svg viewBox="0 0 24 24" className="w-5 h-5 fill-current">
-                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
-                      <path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.5.5 0 00.611.611l4.458-1.495A11.952 11.952 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-2.325 0-4.49-.693-6.305-1.884l-.44-.292-2.646.887.887-2.646-.292-.44A9.96 9.96 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
-                    </svg>
-                  )}
-                  {submitting ? "Enviando..." : "Enviar Comprovante"}
-                </button>
-              </div>
+              {!pixData && (
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => { setStep(2); setSelectedCourt(null); setSelectedDuration(null); }}
+                    className="flex-1 h-12 font-body rounded-xl btn-animate"
+                  >
+                    Voltar
+                  </Button>
+                  <Button
+                    onClick={handleConfirmBooking}
+                    disabled={!selectedCourt || (isSociety && !selectedDuration) || submitting}
+                    className="flex-1 h-12 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl btn-animate"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        Gerando PIX...
+                      </>
+                    ) : (
+                      <>
+                        <QrCode className="w-4 h-4 mr-2" />
+                        Confirmar e Pagar
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
             </motion.div>
           )}
         </motion.div>
