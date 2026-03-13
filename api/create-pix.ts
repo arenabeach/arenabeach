@@ -14,8 +14,10 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: "bookingId e amount são obrigatórios" });
     }
 
+    // Debug: verificar token
+    console.log("Token existe:", !!mpAccessToken, "Tamanho:", mpAccessToken.length, "Inicio:", mpAccessToken.substring(0, 10));
+
     if (!mpAccessToken) {
-      console.error("ENV check - MERCADO_PAGO_ACCESS_TOKEN existe:", !!process.env.MERCADO_PAGO_ACCESS_TOKEN);
       return res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado" });
     }
 
