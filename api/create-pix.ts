@@ -1,13 +1,11 @@
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const mpAccessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN || "";
-
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+
+  const supabaseUrl = process.env.SUPABASE_URL || "";
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const mpAccessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN || "";
 
   try {
     const { bookingId, amount, description, payerEmail } = req.body;
@@ -17,6 +15,7 @@ export default async function handler(req: any, res: any) {
     }
 
     if (!mpAccessToken) {
+      console.error("ENV check - MERCADO_PAGO_ACCESS_TOKEN existe:", !!process.env.MERCADO_PAGO_ACCESS_TOKEN);
       return res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado" });
     }
 
@@ -52,6 +51,7 @@ export default async function handler(req: any, res: any) {
     }
 
     // Salvar o ID do pagamento MP no booking
+    const { createClient } = await import("@supabase/supabase-js");
     const supabase = createClient(supabaseUrl, supabaseKey);
     await supabase
       .from("bookings")
