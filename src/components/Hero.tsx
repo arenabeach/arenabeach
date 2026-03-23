@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import heroImg from "@/assets/hero-arena.jpg";
+import heroImg from "@/assets/hero-arena.png";
 import logoImg from "@/assets/logo-arena.png";
 import { ArrowDown, MapPin, Phone } from "lucide-react";
 
