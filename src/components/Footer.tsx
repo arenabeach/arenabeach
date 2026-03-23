@@ -1,5 +1,5 @@
 import logoImg from "@/assets/logo-arena.png";
-import { MapPin, Phone, Instagram } from "lucide-react";
+import { MapPin, Phone, Instagram, Mail } from "lucide-react";
 
 const Footer = () => {
   return (
@@ -26,6 +26,9 @@ const Footer = () => {
               </a>
               <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-primary transition-colors">
                 <Instagram size={14} /> @alcabeacharena
+              </a>
+              <a href="mailto:arenaalcabeach@gmail.com" className="flex items-center gap-2 hover:text-primary transition-colors">
+                <Mail size={14} /> arenaalcabeach@gmail.com
               </a>
               <p className="flex items-center gap-2">
                 <MapPin size={14} /> Patos - PB

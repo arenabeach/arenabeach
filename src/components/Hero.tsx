@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import heroImg from "@/assets/hero-arena.png";
 import logoImg from "@/assets/logo-arena.png";
-import { ArrowDown, MapPin, Phone } from "lucide-react";
+import { ArrowDown, MapPin, Phone, Mail } from "lucide-react";
 
 const Hero = () => {
   return (
@@ -63,6 +63,9 @@ const Hero = () => {
           </span>
           <span className="flex items-center gap-1.5">
             <Phone size={14} /> (83) 99932-2509
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Mail size={14} /> arenaalcabeach@gmail.com
           </span>
         </motion.div>
       </div>

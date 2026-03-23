@@ -36,7 +36,7 @@ export default async function handler(req: any, res: any) {
         payment_method_id: "pix",
         external_reference: bookingId,
         payer: {
-          email: payerEmail || "cliente@arenabeach.com",
+          email: payerEmail || "arenaalcabeach@gmail.com",
         },
         date_of_expiration: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30 min
       }),
