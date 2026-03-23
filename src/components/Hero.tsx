@@ -62,7 +62,7 @@ const Hero = () => {
             <MapPin size={14} /> Patos - PB
           </span>
           <span className="flex items-center gap-1.5">
-            <Phone size={14} /> (83) 99932-2509
+            <Phone size={14} /> (83) 99982-8597
           </span>
           <span className="flex items-center gap-1.5">
             <Mail size={14} /> arenaalcabeach@gmail.com

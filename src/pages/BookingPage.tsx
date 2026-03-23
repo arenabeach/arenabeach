@@ -23,7 +23,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { toast } from "sonner";
 
-const WHATSAPP_NUMBER = "5583999322509";
+const WHATSAPP_NUMBER = "5583999828597";
 
 interface PixPaymentData {
   paymentId: string;

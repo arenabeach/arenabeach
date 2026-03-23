@@ -21,8 +21,8 @@ const Footer = () => {
           <div>
             <h4 className="font-display text-lg tracking-wide text-foreground mb-3">Contato</h4>
             <div className="space-y-2 text-sm font-body text-muted-foreground">
-              <a href="tel:+5583999322509" className="flex items-center gap-2 hover:text-primary transition-colors">
-                <Phone size={14} /> (83) 99932-2509
+              <a href="tel:+5583999828597" className="flex items-center gap-2 hover:text-primary transition-colors">
+                <Phone size={14} /> (83) 99982-8597
               </a>
               <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 hover:text-primary transition-colors">
                 <Instagram size={14} /> @alcabeacharena
