@@ -14,6 +14,7 @@ import {
   courtPrices,
   timeSlots,
   addBooking,
+  updateBookingStatus,
   getAllBookedSlots,
   societyDurations,
   sports,
@@ -79,6 +80,7 @@ const BookingPage = () => {
   const [pixData, setPixData] = useState<PixPaymentData | null>(null);
   const [pixStatus, setPixStatus] = useState<string | null>(null);
   const [pixCopied, setPixCopied] = useState(false);
+  const [pendingBookingId, setPendingBookingId] = useState<string | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const dateStr = date ? format(date, "yyyy-MM-dd") : "";
@@ -135,6 +137,7 @@ const BookingPage = () => {
         const data = await res.json();
         if (data.status === "approved") {
           setPixStatus("approved");
+          setPendingBookingId(null);
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           toast.success("Pagamento confirmado! Seu agendamento foi aprovado.");
         }
@@ -144,12 +147,42 @@ const BookingPage = () => {
     }, 5000); // Verifica a cada 5 segundos
   }, []);
 
-  // Limpar polling ao desmontar
+  // Limpar polling e cancelar booking pendente ao desmontar
   useEffect(() => {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, []);
+
+  // Cancelar booking se sair da página com PIX não pago
+  useEffect(() => {
+    const cancelOnLeave = () => {
+      if (pendingBookingId && pixStatus !== "approved") {
+        updateBookingStatus(pendingBookingId, "cancelado");
+      }
+    };
+    window.addEventListener("beforeunload", cancelOnLeave);
+    return () => {
+      window.removeEventListener("beforeunload", cancelOnLeave);
+      cancelOnLeave();
+    };
+  }, [pendingBookingId, pixStatus]);
+
+  const handleCancelPix = async () => {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    if (pendingBookingId) {
+      try {
+        await updateBookingStatus(pendingBookingId, "cancelado");
+      } catch { /* ignore */ }
+    }
+    setPendingBookingId(null);
+    setPixData(null);
+    setPixStatus(null);
+    setSelectedCourt(null);
+    setSelectedDuration(null);
+    setStep(1);
+    toast.success("Agendamento cancelado. O horário foi liberado.");
+  };
 
   const handleGoToStep2 = () => {
     if (!date || selectedTimes.length === 0) {
@@ -242,6 +275,7 @@ const BookingPage = () => {
         name: name.trim(),
         phone,
       });
+      setPendingBookingId(booking.id);
 
       // 2. Criar cobrança PIX no Mercado Pago
       const amount = getTotalAmount();
@@ -855,6 +889,14 @@ const BookingPage = () => {
                           <p className="text-xs text-muted-foreground font-body">
                             O pagamento expira em 30 minutos
                           </p>
+
+                          <Button
+                            variant="outline"
+                            onClick={handleCancelPix}
+                            className="w-full h-10 font-body rounded-xl text-sm text-destructive border-destructive/30 hover:bg-destructive/10"
+                          >
+                            Cancelar agendamento
+                          </Button>
                         </div>
                       )}
                     </motion.div>
