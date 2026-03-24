@@ -4,13 +4,13 @@ import { CalendarCheck, QrCode, MessageCircle, CheckCircle } from "lucide-react"
 const steps = [
   {
     icon: CalendarCheck,
-    title: "Escolha o Horario",
-    desc: "Selecione a quadra, data e horario disponivel para jogar",
+    title: "Escolha o Horário",
+    desc: "Selecione a quadra, data e horário disponível para jogar",
   },
   {
     icon: QrCode,
     title: "Pague via PIX",
-    desc: "Copie a chave PIX e faca a transferencia do valor da reserva",
+    desc: "Copie a chave PIX e faça a transferência do valor da reserva",
   },
   {
     icon: MessageCircle,
@@ -19,7 +19,7 @@ const steps = [
   },
   {
     icon: CheckCircle,
-    title: "Confirmacao",
+    title: "Confirmação",
     desc: "A arena verifica o pagamento e confirma seu agendamento",
   },
 ];

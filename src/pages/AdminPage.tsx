@@ -93,7 +93,7 @@ const AdminPage = () => {
     clearSession();
     setAuthenticated(false);
     setPassword("");
-    toast.success("Sessao encerrada");
+    toast.success("Sessão encerrada");
   };
 
   const handleStatus = async (id: string, status: Booking["status"]) => {
@@ -349,7 +349,7 @@ const AdminPage = () => {
                         <div>
                           <h3 className="font-display text-base sm:text-lg text-foreground">{cName}</h3>
                           <p className="text-[9px] sm:text-[10px] font-body text-muted-foreground">
-                            {cBookings.length} horario(s) ocupado(s)
+                            {cBookings.length} horário(s) ocupado(s)
                           </p>
                         </div>
                       </div>
@@ -504,7 +504,7 @@ const AdminPage = () => {
                 <div className="text-center py-12 sm:py-20 text-muted-foreground font-body">
                   <p className="text-base sm:text-lg">Nenhum agendamento encontrado</p>
                   <p className="text-xs sm:text-sm mt-1">
-                    {searchTerm ? "Tente buscar por outro termo" : "Os agendamentos aparecerao aqui"}
+                    {searchTerm ? "Tente buscar por outro termo" : "Os agendamentos aparecerão aqui"}
                   </p>
                 </div>
               ) : (

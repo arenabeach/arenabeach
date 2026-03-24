@@ -122,7 +122,7 @@ const BookingPage = () => {
     if (!pixData?.qrCode) return;
     navigator.clipboard.writeText(pixData.qrCode);
     setPixCopied(true);
-    toast.success("Codigo PIX copiado!");
+    toast.success("Código PIX copiado!");
     setTimeout(() => setPixCopied(false), 2000);
   };
 
@@ -153,7 +153,7 @@ const BookingPage = () => {
 
   const handleGoToStep2 = () => {
     if (!date || selectedTimes.length === 0) {
-      toast.error("Selecione data e horario!");
+      toast.error("Selecione data e horário!");
       return;
     }
     if (!selectedSport) {
@@ -161,7 +161,7 @@ const BookingPage = () => {
       return;
     }
     if (selectedTimes.length < 2) {
-      toast.error("O tempo minimo de reserva e 1 hora (selecione pelo menos 2 horarios)!");
+      toast.error("O tempo mínimo de reserva é 1 hora (selecione pelo menos 2 horários)!");
       return;
     }
     setStep(2);
@@ -173,7 +173,7 @@ const BookingPage = () => {
       return;
     }
     if (!isValidPhone(phone)) {
-      toast.error("Informe um telefone valido com DDD!");
+      toast.error("Informe um telefone válido com DDD!");
       return;
     }
     // Recarregar slots antes de mostrar as quadras
@@ -189,7 +189,7 @@ const BookingPage = () => {
   const handleSelectCourt = (courtId: string) => {
     const unavailable = selectedTimes.filter((t) => isSlotBooked(courtId, t));
     if (unavailable.length > 0) {
-      toast.error(`Horario(s) ${unavailable.join(", ")} indisponivel(is) nessa quadra!`);
+      toast.error(`Horário(s) ${unavailable.join(", ")} indisponível(is) nessa quadra!`);
       return;
     }
     setSelectedCourt(courtId);
@@ -213,7 +213,7 @@ const BookingPage = () => {
       return;
     }
     if (isSociety && !selectedDuration) {
-      toast.error("Selecione a duracao!");
+      toast.error("Selecione a duração!");
       return;
     }
 
@@ -224,7 +224,7 @@ const BookingPage = () => {
       const freshSlots = await getAllBookedSlots(dateStr);
       const unavailable = selectedTimes.filter((t) => freshSlots[selectedCourt]?.has(t));
       if (unavailable.length > 0) {
-        toast.error(`Horario(s) ${unavailable.join(", ")} acabou de ser reservado! Escolha outro horario.`);
+        toast.error(`Horário(s) ${unavailable.join(", ")} acabou de ser reservado! Escolha outro horário.`);
         setBookedSlots(freshSlots);
         setSubmitting(false);
         return;
@@ -281,15 +281,15 @@ const BookingPage = () => {
     if (!date || !selectedCourt) return;
     const timeDisplay = selectedTimes.join(", ");
     const durationLabel = isSociety
-      ? (selectedDuration ? `\nDuracao: ${selectedDuration.label}` : "")
+      ? (selectedDuration ? `\nDuração: ${selectedDuration.label}` : "")
       : ` (${formatDuration(selectedTimes.length)})`;
     const sportInfo = !isSociety && selectedSport ? `\nEsporte: ${selectedSport}` : "";
 
     const message = encodeURIComponent(
-      `Ola! Fiz um agendamento na Alça Beach Arena:\n\n` +
+      `Olá! Fiz um agendamento na Alça Beach Arena:\n\n` +
       `Quadra: ${courtName}${sportInfo}\n` +
       `Data: ${format(date, "dd/MM/yyyy")}\n` +
-      `Horario: ${timeDisplay}${durationLabel}\n` +
+      `Horário: ${timeDisplay}${durationLabel}\n` +
       `Nome: ${name}\n` +
       `Telefone: ${phone}\n` +
       `Valor: ${totalPrice}\n\n` +
@@ -299,7 +299,7 @@ const BookingPage = () => {
     window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${message}`, "_blank");
   };
 
-  const stepLabels = ["Data e Horario", "Seus Dados", "Quadra e Pagamento"];
+  const stepLabels = ["Data e Horário", "Seus Dados", "Quadra e Pagamento"];
 
   return (
     <div className="min-h-screen bg-background">
@@ -321,10 +321,10 @@ const BookingPage = () => {
           transition={{ duration: 0.5 }}
         >
           <h1 className="text-2xl sm:text-3xl md:text-5xl font-display tracking-wide mb-2">
-            AGENDAR <span className="text-primary">HORARIO</span>
+            AGENDAR <span className="text-primary">HORÁRIO</span>
           </h1>
           <p className="text-muted-foreground font-body text-sm sm:text-base mb-6 sm:mb-8">
-            Quadras: <span className="text-primary font-semibold">R$ {QUADRA_PRICE_PER_HOUR}/hora</span> (R$ {QUADRA_PRICE_PER_SLOT.toFixed(2).replace(".", ",")}/30min) — minimo 1 hora
+            Quadras: <span className="text-primary font-semibold">R$ {QUADRA_PRICE_PER_HOUR}/hora</span> (R$ {QUADRA_PRICE_PER_SLOT.toFixed(2).replace(".", ",")}/30min) — mínimo 1 hora
           </p>
 
           {/* Steps indicator */}
@@ -421,7 +421,7 @@ const BookingPage = () => {
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                   <div className="flex items-center justify-between mb-3">
                     <label className="font-body font-semibold text-sm block text-foreground">
-                      Selecione os horarios
+                      Selecione os horários
                     </label>
                     {selectedTimes.length > 0 && (
                       <span className="text-xs font-body font-semibold text-primary bg-primary/10 px-3 py-1 rounded-full">
@@ -432,7 +432,7 @@ const BookingPage = () => {
                   {loadingSlots ? (
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                      <span className="ml-2 text-sm font-body text-muted-foreground">Carregando horarios...</span>
+                      <span className="ml-2 text-sm font-body text-muted-foreground">Carregando horários...</span>
                     </div>
                   ) : (
                     <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-1.5 sm:gap-2">
@@ -457,12 +457,12 @@ const BookingPage = () => {
                   )}
                   {selectedTimes.length > 0 && selectedTimes.length < 2 && (
                     <p className="text-xs text-amber-500 font-body mt-2 font-medium">
-                      Selecione pelo menos 2 horarios (minimo 1 hora)
+                      Selecione pelo menos 2 horários (mínimo 1 hora)
                     </p>
                   )}
                   {selectedTimes.length >= 2 && (
                     <p className="text-xs text-muted-foreground font-body mt-2">
-                      Clique novamente para desmarcar um horario
+                      Clique novamente para desmarcar um horário
                     </p>
                   )}
 
@@ -540,7 +540,7 @@ const BookingPage = () => {
                 />
                 {phone && !isValidPhone(phone) && (
                   <p className="text-xs text-destructive font-body mt-1">
-                    Informe um numero com DDD valido
+                    Informe um número com DDD válido
                   </p>
                 )}
               </div>
@@ -658,7 +658,7 @@ const BookingPage = () => {
                           </div>
                           {hasConflict && !isSelected && (
                             <p className="text-[10px] text-destructive font-body mt-1.5">
-                              Seus horarios selecionados nao estao todos disponiveis nesta quadra
+                              Seus horários selecionados não estão todos disponíveis nesta quadra
                             </p>
                           )}
                         </button>
@@ -670,11 +670,11 @@ const BookingPage = () => {
                 <div className="flex items-center gap-4 mt-3">
                   <div className="flex items-center gap-1.5">
                     <span className="w-3 h-3 rounded bg-palm/15 border border-palm/30" />
-                    <span className="text-[10px] font-body text-muted-foreground">Disponivel</span>
+                    <span className="text-[10px] font-body text-muted-foreground">Disponível</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="w-3 h-3 rounded bg-primary/20 border border-primary/40" />
-                    <span className="text-[10px] font-body text-muted-foreground">Seus horarios</span>
+                    <span className="text-[10px] font-body text-muted-foreground">Seus horários</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="w-3 h-3 rounded bg-destructive/15 border border-destructive/30" />
@@ -687,7 +687,7 @@ const BookingPage = () => {
               {isSociety && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                   <label className="font-body font-semibold text-sm mb-3 block text-foreground">
-                    Duracao
+                    Duração
                   </label>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {societyDurations.map((opt) => (
@@ -741,18 +741,18 @@ const BookingPage = () => {
                         </div>
                       )}
                       <div className="flex justify-between py-2 border-b border-border/50">
-                        <span className="text-muted-foreground">Horario(s)</span>
+                        <span className="text-muted-foreground">Horário(s)</span>
                         <span className="font-medium text-foreground text-right max-w-[60%]">{selectedTimes.join(", ")}</span>
                       </div>
                       {!isSociety && (
                         <div className="flex justify-between py-2 border-b border-border/50">
-                          <span className="text-muted-foreground">Duracao</span>
+                          <span className="text-muted-foreground">Duração</span>
                           <span className="font-medium text-foreground">{formatDuration(selectedTimes.length)}</span>
                         </div>
                       )}
                       {isSociety && selectedDuration && (
                         <div className="flex justify-between py-2 border-b border-border/50">
-                          <span className="text-muted-foreground">Duracao</span>
+                          <span className="text-muted-foreground">Duração</span>
                           <span className="font-medium text-foreground">{selectedDuration.label}</span>
                         </div>
                       )}
@@ -795,14 +795,14 @@ const BookingPage = () => {
                               <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z" />
                               <path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.5.5 0 00.611.611l4.458-1.495A11.952 11.952 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-2.325 0-4.49-.693-6.305-1.884l-.44-.292-2.646.887.887-2.646-.292-.44A9.96 9.96 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
                             </svg>
-                            Enviar confirmacao no WhatsApp
+                            Enviar confirmação no WhatsApp
                           </button>
                           <Button
                             onClick={() => navigate("/")}
                             variant="outline"
                             className="w-full h-12 font-body rounded-xl"
                           >
-                            Voltar ao inicio
+                            Voltar ao início
                           </Button>
                         </div>
                       ) : (
@@ -862,8 +862,8 @@ const BookingPage = () => {
                     <div className="glass-card rounded-2xl p-4 flex items-start gap-3">
                       <Shield size={18} className="text-palm shrink-0 mt-0.5" />
                       <p className="text-xs font-body text-muted-foreground leading-relaxed">
-                        Ao confirmar, sera gerado um QR Code PIX para pagamento.
-                        Seu agendamento sera confirmado automaticamente apos o pagamento.
+                        Ao confirmar, será gerado um QR Code PIX para pagamento.
+                        Seu agendamento será confirmado automaticamente após o pagamento.
                       </p>
                     </div>
                   )}

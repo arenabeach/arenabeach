@@ -42,7 +42,7 @@ const Hero = () => {
             href="/agendar"
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-primary text-primary-foreground font-body font-semibold text-sm tracking-wide btn-animate btn-pulse hover:shadow-[0_0_40px_hsl(25_95%_53%/0.4)]"
           >
-            AGENDAR HORARIO
+            AGENDAR HORÁRIO
           </a>
           <a
             href="#como-funciona"

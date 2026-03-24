@@ -14,7 +14,7 @@ const Footer = () => {
               </span>
             </div>
             <p className="text-sm font-body text-muted-foreground max-w-xs">
-              O melhor espaco para esportes de areia e campo society da regiao.
+              O melhor espaço para esportes de areia e campo society da região.
             </p>
           </div>
 
@@ -37,10 +37,10 @@ const Footer = () => {
           </div>
 
           <div>
-            <h4 className="font-display text-lg tracking-wide text-foreground mb-3">Horario</h4>
+            <h4 className="font-display text-lg tracking-wide text-foreground mb-3">Horário</h4>
             <div className="space-y-1 text-sm font-body text-muted-foreground">
               <p>Segunda a Sexta: 06h - 22h</p>
-              <p>Sabados e Domingos: 06h - 22h</p>
+              <p>Sábados e Domingos: 06h - 22h</p>
             </div>
           </div>
         </div>
@@ -50,7 +50,7 @@ const Footer = () => {
             2026 Alça Beach Arena. Todos os direitos reservados.
           </p>
           <p className="text-muted-foreground/50 font-body text-xs">
-            Feito com dedicacao
+            Feito com dedicação
           </p>
         </div>
       </div>

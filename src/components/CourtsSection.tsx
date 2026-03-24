@@ -13,7 +13,7 @@ const courts = [
     image: courtVolei,
     price: "R$ 45/h",
     players: "4-6 jogadores",
-    duration: "1h por sessao",
+    duration: "1h por sessão",
   },
   {
     id: "quadra-02",
@@ -21,7 +21,7 @@ const courts = [
     image: courtFutvolei,
     price: "R$ 45/h",
     players: "4-6 jogadores",
-    duration: "1h por sessao",
+    duration: "1h por sessão",
   },
   {
     id: "quadra-03",
@@ -29,7 +29,7 @@ const courts = [
     image: courtBeachTennis,
     price: "R$ 45/h",
     players: "4-6 jogadores",
-    duration: "1h por sessao",
+    duration: "1h por sessão",
   },
   {
     id: "quadra-04",
@@ -37,7 +37,7 @@ const courts = [
     image: courtVolei,
     price: "R$ 45/h",
     players: "4-6 jogadores",
-    duration: "1h por sessao",
+    duration: "1h por sessão",
   },
   {
     id: "quadra-05",
@@ -45,7 +45,7 @@ const courts = [
     image: courtFutvolei,
     price: "R$ 45/h",
     players: "4-6 jogadores",
-    duration: "1h por sessao",
+    duration: "1h por sessão",
   },
   {
     id: "society",
@@ -71,9 +71,9 @@ const CourtsSection = () => {
           transition={{ duration: 0.5 }}
         >
           <p className="section-label">Reserve agora</p>
-          <h2 className="section-title">AGENDAR HORARIO</h2>
+          <h2 className="section-title">AGENDAR HORÁRIO</h2>
           <p className="text-muted-foreground font-body mt-3 max-w-md mx-auto">
-            Escolha uma quadra e reserve seu horario
+            Escolha uma quadra e reserve seu horário
           </p>
         </motion.div>
 

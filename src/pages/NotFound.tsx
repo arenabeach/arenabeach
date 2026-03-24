@@ -10,13 +10,13 @@ const NotFound = () => {
       <div className="text-center">
         <h1 className="text-8xl font-display text-primary mb-4">404</h1>
         <p className="text-xl font-body text-muted-foreground mb-6">
-          Pagina nao encontrada
+          Página não encontrada
         </p>
         <Button
           onClick={() => navigate("/")}
           className="font-body gap-2 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
         >
-          <Home size={16} /> Voltar ao inicio
+          <Home size={16} /> Voltar ao início
         </Button>
       </div>
     </div>
