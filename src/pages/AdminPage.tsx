@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, Booking, courtNames, timeSlots } from "@/lib/bookings";
+import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, timeSlots, sports } from "@/lib/bookings";
+import type { Sport } from "@/lib/bookings";
 import { verifyAdminPassword, createSession, isSessionValid, clearSession, isPasswordConfigured } from "@/lib/auth";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2 } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -32,6 +33,11 @@ const AdminPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [tab, setTab] = useState<"quadras" | "lista">("quadras");
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [manualBooking, setManualBooking] = useState<{ courtId: string; courtName: string; time: string } | null>(null);
+  const [manualName, setManualName] = useState("");
+  const [manualPhone, setManualPhone] = useState("");
+  const [manualSport, setManualSport] = useState<Sport | null>(null);
+  const [manualSubmitting, setManualSubmitting] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -103,6 +109,47 @@ const AdminPage = () => {
       toast.success(status === "confirmado" ? "Agendamento confirmado!" : "Agendamento cancelado.");
     } catch {
       toast.error("Erro ao atualizar status");
+    }
+  };
+
+  const formatPhone = (value: string): string => {
+    const digits = value.replace(/\D/g, "").slice(0, 11);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  };
+
+  const openManualBooking = (courtId: string, courtName: string, time: string) => {
+    setManualBooking({ courtId, courtName, time });
+    setManualName("");
+    setManualPhone("");
+    setManualSport(null);
+  };
+
+  const handleManualBooking = async () => {
+    if (!manualBooking || !manualName.trim() || !manualPhone.trim()) {
+      toast.error("Preencha nome e telefone!");
+      return;
+    }
+    setManualSubmitting(true);
+    try {
+      const booking = await addBooking({
+        courtId: manualBooking.courtId,
+        courtName: manualBooking.courtName,
+        sport: manualBooking.courtId !== "society" ? (manualSport || undefined) : undefined,
+        date: selectedDate,
+        time: manualBooking.time,
+        name: manualName.trim(),
+        phone: manualPhone,
+      });
+      await updateBookingStatus(booking.id, "confirmado");
+      await refreshBookings();
+      setManualBooking(null);
+      toast.success("Agendamento criado e confirmado!");
+    } catch {
+      toast.error("Erro ao criar agendamento");
+    } finally {
+      setManualSubmitting(false);
     }
   };
 
@@ -366,13 +413,14 @@ const AdminPage = () => {
                             return (
                               <div
                                 key={time}
+                                onClick={() => !isBooked && openManualBooking(cId, cName, time)}
                                 className={cn(
                                   "relative rounded-md sm:rounded-lg p-1 sm:p-1.5 text-center transition-all",
                                   isConfirmado
                                     ? "bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700"
                                     : isPendente
                                     ? "bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700"
-                                    : "bg-muted/50 border border-border/50"
+                                    : "bg-muted/50 border border-border/50 cursor-pointer hover:border-primary/50 hover:bg-primary/5"
                                 )}
                               >
                                 <p className={cn(
@@ -409,7 +457,7 @@ const AdminPage = () => {
                                   </div>
                                 ) : (
                                   <p className="text-[9px] font-body text-muted-foreground/40 mt-0.5">
-                                    Livre
+                                    <Plus size={10} className="inline" /> Livre
                                   </p>
                                 )}
                               </div>
@@ -585,6 +633,90 @@ const AdminPage = () => {
           )}
         </motion.div>
       </div>
+
+      {/* Modal de agendamento manual */}
+      {manualBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <motion.div
+            className="w-full max-w-sm bg-card border border-border rounded-2xl p-5 sm:p-6 shadow-xl"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display text-lg sm:text-xl">Novo Agendamento</h3>
+              <button onClick={() => setManualBooking(null)} className="text-muted-foreground hover:text-foreground">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-2 text-sm font-body text-muted-foreground mb-4">
+              <p><span className="font-medium text-foreground">{manualBooking.courtName}</span></p>
+              <p>{format(new Date(selectedDate + "T12:00:00"), "dd 'de' MMM, yyyy", { locale: ptBR })} às <span className="font-medium text-foreground">{manualBooking.time}</span></p>
+            </div>
+
+            <div className="space-y-3">
+              {manualBooking.courtId !== "society" && (
+                <div>
+                  <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Esporte</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {sports.map((sport) => (
+                      <button
+                        key={sport}
+                        onClick={() => setManualSport(sport)}
+                        className={cn(
+                          "py-2 rounded-lg text-xs font-body font-medium transition-all",
+                          manualSport === sport
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        )}
+                      >
+                        {sport}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Nome</label>
+                <Input
+                  value={manualName}
+                  onChange={(e) => setManualName(e.target.value)}
+                  placeholder="Nome do cliente"
+                  className="h-10 font-body rounded-xl text-sm"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Telefone</label>
+                <Input
+                  value={manualPhone}
+                  onChange={(e) => setManualPhone(formatPhone(e.target.value))}
+                  placeholder="(83) 99999-9999"
+                  className="h-10 font-body rounded-xl text-sm"
+                  type="tel"
+                  maxLength={15}
+                />
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  onClick={() => setManualBooking(null)}
+                  className="flex-1 h-10 font-body rounded-xl text-sm"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleManualBooking}
+                  disabled={manualSubmitting || !manualName.trim() || !manualPhone.trim()}
+                  className="flex-1 h-10 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl text-sm"
+                >
+                  {manualSubmitting ? <Loader2 size={16} className="animate-spin" /> : "Confirmar"}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       <Footer />
     </div>
