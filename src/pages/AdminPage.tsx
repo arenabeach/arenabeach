@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, timeSlots, sports } from "@/lib/bookings";
+import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports } from "@/lib/bookings";
 import type { Sport } from "@/lib/bookings";
 import { verifyAdminPassword, createSession, isSessionValid, clearSession, isPasswordConfigured } from "@/lib/auth";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -31,7 +31,7 @@ const AdminPage = () => {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<"todos" | Booking["status"]>("todos");
   const [searchTerm, setSearchTerm] = useState("");
-  const [tab, setTab] = useState<"quadras" | "lista">("quadras");
+  const [tab, setTab] = useState<"quadras" | "lista" | "caixa">("quadras");
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [manualBooking, setManualBooking] = useState<{ courtId: string; courtName: string; time: string } | null>(null);
   const [manualName, setManualName] = useState("");
@@ -183,6 +183,47 @@ const AdminPage = () => {
     confirmado: bookings.filter((b) => b.status === "confirmado").length,
     cancelado: bookings.filter((b) => b.status === "cancelado").length,
   };
+
+  // Calcular receita de um booking confirmado
+  const getBookingRevenue = (b: Booking): number => {
+    if (b.courtId === "society") {
+      // Society: tenta inferir pelo número de slots
+      const slots = b.time.split(", ").length;
+      if (slots >= 4) return 180;
+      if (slots >= 3) return 140;
+      return 100;
+    }
+    // Quadras: R$ 45/h = R$ 22.50 por slot de 30min
+    const pricePerHour = parseInt((courtPrices[b.courtId] || "R$ 45").replace(/\D/g, ""), 10);
+    const slots = b.time.split(", ").length;
+    return (pricePerHour / 2) * slots;
+  };
+
+  const confirmedBookings = bookings.filter((b) => b.status === "confirmado");
+
+  // Receita por período
+  const today = format(new Date(), "yyyy-MM-dd");
+  const revenueToday = confirmedBookings
+    .filter((b) => b.date === today)
+    .reduce((sum, b) => sum + getBookingRevenue(b), 0);
+
+  const revenueSelectedDate = confirmedBookings
+    .filter((b) => b.date === selectedDate)
+    .reduce((sum, b) => sum + getBookingRevenue(b), 0);
+
+  const revenueTotal = confirmedBookings
+    .reduce((sum, b) => sum + getBookingRevenue(b), 0);
+
+  // Receita por quadra
+  const revenueByCourtSelected = courtIds.map((cId) => {
+    const courtBookings = confirmedBookings.filter((b) => b.courtId === cId && b.date === selectedDate);
+    return {
+      courtId: cId,
+      courtName: courtNames[cId],
+      count: courtBookings.length,
+      revenue: courtBookings.reduce((sum, b) => sum + getBookingRevenue(b), 0),
+    };
+  });
 
   // Get bookings for a specific court and date
   const getCourtBookings = (courtId: string, date: string) => {
@@ -342,6 +383,17 @@ const AdminPage = () => {
               )}
             >
               <List size={14} /> Lista
+            </button>
+            <button
+              onClick={() => setTab("caixa")}
+              className={cn(
+                "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-body font-medium transition-all",
+                tab === "caixa"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              )}
+            >
+              <DollarSign size={14} /> Caixa
             </button>
           </div>
 
@@ -627,6 +679,129 @@ const AdminPage = () => {
                         </motion.div>
                       );
                     })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* =================== TAB: CAIXA =================== */}
+          {tab === "caixa" && !loading && (
+            <div className="space-y-4 sm:space-y-6">
+              {/* Date navigator */}
+              <div className="flex items-center justify-center gap-2 sm:gap-3">
+                <button
+                  onClick={prevDate}
+                  className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all btn-animate"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl bg-card border border-border min-w-0 justify-center">
+                  <CalendarIcon size={14} className="text-primary shrink-0" />
+                  <span className="font-body text-xs sm:text-sm font-medium text-foreground whitespace-nowrap">
+                    {format(dateObj, "dd 'de' MMM, yyyy", { locale: ptBR })}
+                  </span>
+                </div>
+                <button
+                  onClick={nextDate}
+                  className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all btn-animate"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* Revenue cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                  <p className="text-xs font-body text-muted-foreground mb-1">Hoje</p>
+                  <p className="text-2xl sm:text-3xl font-display text-emerald-500">
+                    R$ {revenueToday.toFixed(2).replace(".", ",")}
+                  </p>
+                  <p className="text-[10px] font-body text-muted-foreground mt-1">
+                    {confirmedBookings.filter((b) => b.date === today).length} agendamento(s)
+                  </p>
+                </div>
+                <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                  <p className="text-xs font-body text-muted-foreground mb-1">
+                    {selectedDate === today ? "Hoje" : format(dateObj, "dd/MM/yyyy")}
+                  </p>
+                  <p className="text-2xl sm:text-3xl font-display text-primary">
+                    R$ {revenueSelectedDate.toFixed(2).replace(".", ",")}
+                  </p>
+                  <p className="text-[10px] font-body text-muted-foreground mt-1">
+                    {confirmedBookings.filter((b) => b.date === selectedDate).length} agendamento(s)
+                  </p>
+                </div>
+                <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                  <p className="text-xs font-body text-muted-foreground mb-1">Total geral</p>
+                  <p className="text-2xl sm:text-3xl font-display text-foreground">
+                    R$ {revenueTotal.toFixed(2).replace(".", ",")}
+                  </p>
+                  <p className="text-[10px] font-body text-muted-foreground mt-1">
+                    {confirmedBookings.length} agendamento(s)
+                  </p>
+                </div>
+              </div>
+
+              {/* Revenue by court for selected date */}
+              <div>
+                <h3 className="font-display text-lg sm:text-xl mb-3">
+                  Faturamento por quadra — {format(dateObj, "dd/MM/yyyy")}
+                </h3>
+                <div className="space-y-2">
+                  {revenueByCourtSelected.map((court) => (
+                    <div
+                      key={court.courtId}
+                      className="glass-card rounded-xl p-3 sm:p-4 flex items-center justify-between"
+                    >
+                      <div>
+                        <p className="font-body font-semibold text-sm text-foreground">{court.courtName}</p>
+                        <p className="text-[10px] sm:text-xs font-body text-muted-foreground">
+                          {court.count} agendamento(s) confirmado(s)
+                        </p>
+                      </div>
+                      <p className={cn(
+                        "font-display text-lg sm:text-xl",
+                        court.revenue > 0 ? "text-emerald-500" : "text-muted-foreground/40"
+                      )}>
+                        R$ {court.revenue.toFixed(2).replace(".", ",")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Confirmed bookings list for selected date */}
+              {confirmedBookings.filter((b) => b.date === selectedDate).length > 0 && (
+                <div>
+                  <h3 className="font-display text-lg sm:text-xl mb-3">
+                    Detalhes — {format(dateObj, "dd/MM/yyyy")}
+                  </h3>
+                  <div className="space-y-2">
+                    {confirmedBookings
+                      .filter((b) => b.date === selectedDate)
+                      .sort((a, b) => a.time.localeCompare(b.time))
+                      .map((booking) => (
+                        <div
+                          key={booking.id}
+                          className="glass-card rounded-xl p-3 sm:p-4 flex items-center justify-between"
+                        >
+                          <div className="text-sm font-body min-w-0">
+                            <p className="font-medium text-foreground">{booking.courtName} — {booking.time}</p>
+                            <p className="text-xs text-muted-foreground">{booking.name} • {booking.phone}</p>
+                          </div>
+                          <p className="font-display text-base sm:text-lg text-emerald-500 shrink-0 ml-3">
+                            R$ {getBookingRevenue(booking).toFixed(2).replace(".", ",")}
+                          </p>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {confirmedBookings.filter((b) => b.date === selectedDate).length === 0 && (
+                <div className="text-center py-12 text-muted-foreground font-body">
+                  <p className="text-base sm:text-lg">Nenhum agendamento confirmado</p>
+                  <p className="text-xs sm:text-sm mt-1">Nenhuma receita para esta data</p>
                 </div>
               )}
             </div>
