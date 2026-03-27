@@ -339,7 +339,7 @@ const BookingPage = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <div className="pt-24 pb-16 px-4 max-w-2xl mx-auto">
+      <div className="pt-16 xs:pt-20 sm:pt-24 pb-12 xs:pb-16 px-3 xs:px-4 sm:px-6 max-w-2xl mx-auto">
         <motion.button
           onClick={() => navigate("/")}
           className="flex items-center gap-2 text-muted-foreground font-body mb-8 hover:text-foreground transition-colors"
@@ -354,15 +354,15 @@ const BookingPage = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <h1 className="text-2xl sm:text-3xl md:text-5xl font-display tracking-wide mb-2">
+          <h1 className="text-xl xs:text-2xl sm:text-3xl md:text-5xl font-display tracking-wide mb-1.5 xs:mb-2">
             AGENDAR <span className="text-primary">HORÁRIO</span>
           </h1>
-          <p className="text-muted-foreground font-body text-sm sm:text-base mb-6 sm:mb-8">
+          <p className="text-muted-foreground font-body text-xs xs:text-sm sm:text-base mb-4 xs:mb-6 sm:mb-8">
             Quadras: <span className="text-primary font-semibold">R$ {QUADRA_PRICE_PER_HOUR}/hora</span> (R$ {QUADRA_PRICE_PER_SLOT.toFixed(2).replace(".", ",")}/30min) — mínimo 1 hora
           </p>
 
           {/* Steps indicator */}
-          <div className="flex items-center gap-1.5 sm:gap-2 mb-8 sm:mb-10 overflow-x-auto">
+          <div className="flex items-center gap-1 xs:gap-1.5 sm:gap-2 mb-6 xs:mb-8 sm:mb-10 overflow-x-auto">
             {[1, 2, 3].map((s) => (
               <div key={s} className="flex items-center gap-2">
                 <div

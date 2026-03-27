@@ -44,9 +44,9 @@ const Navbar = () => {
 
   return (
     <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${navBg}`}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 sm:h-16 flex items-center justify-between">
+      <div className="max-w-7xl mx-auto px-3 xs:px-4 sm:px-6 h-12 xs:h-14 sm:h-16 flex items-center justify-between">
         <div
-          className="flex items-center gap-2 sm:gap-3 cursor-pointer group min-w-0"
+          className="flex items-center gap-1.5 xs:gap-2 sm:gap-3 cursor-pointer group min-w-0"
           onClick={() => {
             if (isHome) {
               window.scrollTo({ top: 0, behavior: "smooth" });
@@ -58,9 +58,9 @@ const Navbar = () => {
           <img
             src={logoImg}
             alt="Logo"
-            className="h-8 sm:h-9 object-contain transition-transform duration-300 group-hover:scale-110 shrink-0"
+            className="h-7 xs:h-8 sm:h-9 object-contain transition-transform duration-300 group-hover:scale-110 shrink-0"
           />
-          <span className={`font-display text-base sm:text-lg tracking-wider transition-colors duration-300 truncate ${
+          <span className={`font-display text-sm xs:text-base sm:text-lg tracking-wider transition-colors duration-300 truncate ${
             scrolled || !isHome ? "text-foreground" : "text-white"
           }`}>
             ALÇA BEACH ARENA

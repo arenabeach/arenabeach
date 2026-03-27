@@ -149,11 +149,11 @@
   }
 
   .section-label {
-    @apply text-xs sm:text-sm font-body font-medium text-primary tracking-widest uppercase mb-1.5 sm:mb-2;
+    @apply text-[10px] xs:text-xs sm:text-sm font-body font-medium text-primary tracking-widest uppercase mb-1 xs:mb-1.5 sm:mb-2;
   }
 
   .section-title {
-    @apply text-3xl sm:text-4xl md:text-6xl font-display tracking-wide text-foreground;
+    @apply text-2xl xs:text-3xl sm:text-4xl md:text-6xl font-display tracking-wide text-foreground;
   }
 
   .input-field {
