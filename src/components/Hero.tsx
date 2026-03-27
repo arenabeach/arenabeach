@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import heroImg from "@/assets/Hero-ok.png";
+import heroMobileImg from "@/assets/arena-mobile.png";
 import logoImg from "@/assets/logo-arena.png";
 import { ArrowDown, MapPin, Phone, Mail } from "lucide-react";
 
@@ -7,9 +8,14 @@ const Hero = () => {
   return (
     <section className="relative h-[100dvh] min-h-[480px] flex items-center justify-center overflow-hidden">
       <img
+        src={heroMobileImg}
+        alt="Alça Beach Arena"
+        className="absolute inset-0 w-full h-full object-cover object-center scale-105 md:hidden"
+      />
+      <img
         src={heroImg}
         alt="Alça Beach Arena"
-        className="absolute inset-0 w-full h-full object-cover object-center scale-105"
+        className="absolute inset-0 w-full h-full object-cover object-center scale-105 hidden md:block"
       />
       <div className="hero-overlay absolute inset-0" />
 
