@@ -190,7 +190,7 @@ export interface DurationOption {
 }
 
 export const societyDurations: DurationOption[] = [
-  { label: "1 hora", duration: "1h", price: "R$ 1", slots: 1 },
+  { label: "1 hora", duration: "1h", price: "R$ 100", slots: 1 },
   { label: "1 hora e 30 min", duration: "1:30h", price: "R$ 140", slots: 2 },
   { label: "2 horas", duration: "2h", price: "R$ 180", slots: 2 },
 ];
