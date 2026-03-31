@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports } from "@/lib/bookings";
+import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots } from "@/lib/bookings";
 import type { Sport } from "@/lib/bookings";
 import { verifyAdminPassword, createSession, isSessionValid, clearSession, isPasswordConfigured } from "@/lib/auth";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,8 @@ const AdminPage = () => {
   const [manualPhone, setManualPhone] = useState("");
   const [manualSport, setManualSport] = useState<Sport | null>(null);
   const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [blockedSlots, setBlockedSlots] = useState<Record<string, Set<string>>>({});
+  const [blockMode, setBlockMode] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -57,6 +59,57 @@ const AdminPage = () => {
       setLoading(false);
     }
   }, []);
+
+  const refreshBlockedSlots = useCallback(async () => {
+    try {
+      const data = await getBlockedSlots(selectedDate);
+      setBlockedSlots(data);
+    } catch {
+      // silent
+    }
+  }, [selectedDate]);
+
+  useEffect(() => {
+    if (authenticated) {
+      refreshBlockedSlots();
+    }
+  }, [authenticated, refreshBlockedSlots]);
+
+  const isSlotBlocked = (courtId: string, time: string): boolean => {
+    return blockedSlots[courtId]?.has(time) || false;
+  };
+
+  const handleToggleBlock = async (courtId: string, time: string) => {
+    try {
+      if (isSlotBlocked(courtId, time)) {
+        await unblockSlot(courtId, selectedDate, time);
+        toast.success(`Horário ${time} desbloqueado!`);
+      } else {
+        await blockSlot(courtId, selectedDate, time);
+        toast.success(`Horário ${time} bloqueado!`);
+      }
+      await refreshBlockedSlots();
+    } catch {
+      toast.error("Erro ao alterar bloqueio");
+    }
+  };
+
+  const handleToggleBlockAll = async (courtId: string) => {
+    const courtBlocked = blockedSlots[courtId];
+    const allBlocked = courtBlocked && timeSlots.every((t) => courtBlocked.has(t));
+    try {
+      if (allBlocked) {
+        await unblockAllSlots(courtId, selectedDate);
+        toast.success("Todos os horários desbloqueados!");
+      } else {
+        await blockAllSlots(courtId, selectedDate);
+        toast.success("Todos os horários bloqueados!");
+      }
+      await refreshBlockedSlots();
+    } catch {
+      toast.error("Erro ao alterar bloqueio");
+    }
+  };
 
   useEffect(() => {
     if (authenticated) {
@@ -429,6 +482,28 @@ const AdminPage = () => {
                 </button>
               </div>
 
+              {/* Block mode toggle */}
+              <div className="flex justify-center">
+                <button
+                  onClick={() => setBlockMode(!blockMode)}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-body font-medium transition-all",
+                    blockMode
+                      ? "bg-red-500 text-white shadow-sm"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  )}
+                >
+                  {blockMode ? <Unlock size={14} /> : <Ban size={14} />}
+                  {blockMode ? "Sair do modo bloqueio" : "Bloquear horários"}
+                </button>
+              </div>
+
+              {blockMode && (
+                <p className="text-center text-xs font-body text-red-500">
+                  Clique nos horários livres para bloquear/desbloquear. Clientes não poderão reservar horários bloqueados.
+                </p>
+              )}
+
               {/* All courts grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                 {courtIds.map((cId) => {
@@ -449,8 +524,26 @@ const AdminPage = () => {
                           <h3 className="font-display text-base sm:text-lg text-foreground">{cName}</h3>
                           <p className="text-[9px] sm:text-[10px] font-body text-muted-foreground">
                             {cBookings.length} horário(s) ocupado(s)
+                            {blockedSlots[cId] && blockedSlots[cId].size > 0 && (
+                              <span className="text-red-500 ml-1">• {blockedSlots[cId].size} bloqueado(s)</span>
+                            )}
                           </p>
                         </div>
+                        {blockMode && (
+                          <button
+                            onClick={() => handleToggleBlockAll(cId)}
+                            className={cn(
+                              "text-[9px] sm:text-[10px] font-body font-medium px-2 py-1 rounded-lg transition-all",
+                              blockedSlots[cId] && timeSlots.every((t) => blockedSlots[cId]?.has(t))
+                                ? "bg-red-500/20 text-red-500 hover:bg-red-500/30"
+                                : "bg-muted text-muted-foreground hover:bg-muted/80"
+                            )}
+                          >
+                            {blockedSlots[cId] && timeSlots.every((t) => blockedSlots[cId]?.has(t))
+                              ? "Desbloquear tudo"
+                              : "Bloquear tudo"}
+                          </button>
+                        )}
                       </div>
 
                       {/* Time slots grid */}
@@ -461,17 +554,28 @@ const AdminPage = () => {
                             const isBooked = !!booking;
                             const isPendente = booking?.status === "pendente";
                             const isConfirmado = booking?.status === "confirmado";
+                            const blocked = isSlotBlocked(cId, time);
 
                             return (
                               <div
                                 key={time}
-                                onClick={() => !isBooked && openManualBooking(cId, cName, time)}
+                                onClick={() => {
+                                  if (blockMode && !isBooked) {
+                                    handleToggleBlock(cId, time);
+                                  } else if (!isBooked && !blocked) {
+                                    openManualBooking(cId, cName, time);
+                                  }
+                                }}
                                 className={cn(
                                   "relative rounded-md sm:rounded-lg p-1 sm:p-1.5 text-center transition-all",
                                   isConfirmado
                                     ? "bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700"
                                     : isPendente
                                     ? "bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700"
+                                    : blocked
+                                    ? "bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 cursor-pointer"
+                                    : blockMode
+                                    ? "bg-muted/50 border border-border/50 cursor-pointer hover:border-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                                     : "bg-muted/50 border border-border/50 cursor-pointer hover:border-primary/50 hover:bg-primary/5"
                                 )}
                               >
@@ -479,6 +583,7 @@ const AdminPage = () => {
                                   "font-body text-xs font-semibold",
                                   isConfirmado ? "text-emerald-700 dark:text-emerald-400"
                                     : isPendente ? "text-amber-700 dark:text-amber-400"
+                                    : blocked ? "text-red-600 dark:text-red-400"
                                     : "text-muted-foreground/50"
                                 )}>
                                   {time}
@@ -506,6 +611,13 @@ const AdminPage = () => {
                                         {isPendente ? "Pend." : "Conf."}
                                       </span>
                                     </div>
+                                  </div>
+                                ) : blocked ? (
+                                  <div className="mt-0.5">
+                                    <Ban size={10} className="text-red-500 dark:text-red-400 mx-auto" />
+                                    <p className="text-[8px] font-body text-red-500 dark:text-red-400 mt-0.5">
+                                      Bloqueado
+                                    </p>
                                   </div>
                                 ) : (
                                   <p className="text-[9px] font-body text-muted-foreground/40 mt-0.5">

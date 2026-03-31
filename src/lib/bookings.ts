@@ -199,3 +199,127 @@ export const timeSlots = [
   "17:00", "17:30", "18:00", "18:30", "19:00", "19:30",
   "20:00", "20:30", "21:00", "21:30", "22:00", "22:30",
 ];
+
+// =================== BLOCKED SLOTS ===================
+
+export interface BlockedSlot {
+  id: string;
+  courtId: string;
+  date: string;
+  time: string;
+  reason?: string;
+  createdAt: string;
+}
+
+const mapBlockedRow = (row: Record<string, unknown>): BlockedSlot => ({
+  id: row.id as string,
+  courtId: row.court_id as string,
+  date: row.date as string,
+  time: row.time as string,
+  reason: (row.reason as string) || undefined,
+  createdAt: row.created_at as string,
+});
+
+// Busca todos os slots bloqueados de uma data (todas as quadras)
+export const getBlockedSlots = async (
+  date: string
+): Promise<Record<string, Set<string>>> => {
+  const { data, error } = await supabase
+    .from("blocked_slots")
+    .select("court_id, time")
+    .eq("date", date);
+
+  if (error) {
+    console.error("Erro ao buscar slots bloqueados:", error);
+    return {};
+  }
+
+  const result: Record<string, Set<string>> = {};
+  (data || []).forEach((row) => {
+    const courtId = row.court_id as string;
+    if (!result[courtId]) result[courtId] = new Set();
+    result[courtId].add(row.time as string);
+  });
+  return result;
+};
+
+// Bloquear um slot
+export const blockSlot = async (
+  courtId: string,
+  date: string,
+  time: string,
+  reason?: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from("blocked_slots")
+    .insert({
+      court_id: courtId,
+      date,
+      time,
+      reason: reason || null,
+    });
+
+  if (error) {
+    console.error("Erro ao bloquear slot:", error);
+    throw new Error("Erro ao bloquear horário");
+  }
+};
+
+// Desbloquear um slot
+export const unblockSlot = async (
+  courtId: string,
+  date: string,
+  time: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from("blocked_slots")
+    .delete()
+    .eq("court_id", courtId)
+    .eq("date", date)
+    .eq("time", time);
+
+  if (error) {
+    console.error("Erro ao desbloquear slot:", error);
+    throw new Error("Erro ao desbloquear horário");
+  }
+};
+
+// Bloquear todos os horários de uma quadra em uma data
+export const blockAllSlots = async (
+  courtId: string,
+  date: string,
+  reason?: string
+): Promise<void> => {
+  const rows = timeSlots.map((time) => ({
+    court_id: courtId,
+    date,
+    time,
+    reason: reason || null,
+  }));
+
+  const { error } = await supabase
+    .from("blocked_slots")
+    .upsert(rows, { onConflict: "court_id,date,time" });
+
+  if (error) {
+    console.error("Erro ao bloquear todos os slots:", error);
+    throw new Error("Erro ao bloquear todos os horários");
+  }
+};
+
+// Desbloquear todos os horários de uma quadra em uma data
+export const unblockAllSlots = async (
+  courtId: string,
+  date: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from("blocked_slots")
+    .delete()
+    .eq("court_id", courtId)
+    .eq("date", date);
+
+  if (error) {
+    console.error("Erro ao desbloquear todos os slots:", error);
+    throw new Error("Erro ao desbloquear todos os horários");
+  }
+};

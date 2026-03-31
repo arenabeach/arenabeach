@@ -16,6 +16,7 @@ import {
   addBooking,
   updateBookingStatus,
   getAllBookedSlots,
+  getBlockedSlots,
   societyDurations,
   sports,
 } from "@/lib/bookings";
@@ -75,6 +76,7 @@ const BookingPage = () => {
   const [selectedSport, setSelectedSport] = useState<Sport | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<string | null>(null);
   const [bookedSlots, setBookedSlots] = useState<Record<string, Set<string>>>({});
+  const [blockedSlotsData, setBlockedSlotsData] = useState<Record<string, Set<string>>>({});
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [pixData, setPixData] = useState<PixPaymentData | null>(null);
@@ -85,17 +87,20 @@ const BookingPage = () => {
 
   const dateStr = date ? format(date, "yyyy-MM-dd") : "";
 
-  // Carregar slots ocupados quando a data mudar
+  // Carregar slots ocupados e bloqueados quando a data mudar
   useEffect(() => {
     if (!dateStr) return;
     setLoadingSlots(true);
-    getAllBookedSlots(dateStr)
-      .then(setBookedSlots)
+    Promise.all([getAllBookedSlots(dateStr), getBlockedSlots(dateStr)])
+      .then(([booked, blocked]) => {
+        setBookedSlots(booked);
+        setBlockedSlotsData(blocked);
+      })
       .finally(() => setLoadingSlots(false));
   }, [dateStr]);
 
   const isSlotBooked = (courtId: string, time: string): boolean => {
-    return bookedSlots[courtId]?.has(time) || false;
+    return bookedSlots[courtId]?.has(time) || blockedSlotsData[courtId]?.has(time) || false;
   };
 
   const isSociety = selectedCourt === "society";
@@ -212,8 +217,9 @@ const BookingPage = () => {
     // Recarregar slots antes de mostrar as quadras
     if (dateStr) {
       setLoadingSlots(true);
-      const slots = await getAllBookedSlots(dateStr);
+      const [slots, blocked] = await Promise.all([getAllBookedSlots(dateStr), getBlockedSlots(dateStr)]);
       setBookedSlots(slots);
+      setBlockedSlotsData(blocked);
       setLoadingSlots(false);
     }
     setStep(3);
@@ -254,11 +260,12 @@ const BookingPage = () => {
 
     try {
       // Verificar disponibilidade em tempo real antes de confirmar
-      const freshSlots = await getAllBookedSlots(dateStr);
-      const unavailable = selectedTimes.filter((t) => freshSlots[selectedCourt]?.has(t));
+      const [freshSlots, freshBlocked] = await Promise.all([getAllBookedSlots(dateStr), getBlockedSlots(dateStr)]);
+      const unavailable = selectedTimes.filter((t) => freshSlots[selectedCourt]?.has(t) || freshBlocked[selectedCourt]?.has(t));
       if (unavailable.length > 0) {
         toast.error(`Horário(s) ${unavailable.join(", ")} acabou de ser reservado! Escolha outro horário.`);
         setBookedSlots(freshSlots);
+        setBlockedSlotsData(freshBlocked);
         setSubmitting(false);
         return;
       }
