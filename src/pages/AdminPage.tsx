@@ -3,9 +3,9 @@ import { motion } from "framer-motion";
 import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots } from "@/lib/bookings";
 import type { Sport } from "@/lib/bookings";
 import { verifyAdminPassword, createSession, isSessionValid, clearSession, isPasswordConfigured } from "@/lib/auth";
-import { format } from "date-fns";
+import { format, getDay, getDaysInMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -40,6 +40,15 @@ const AdminPage = () => {
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [blockedSlots, setBlockedSlots] = useState<Record<string, Set<string>>>({});
   const [blockMode, setBlockMode] = useState(false);
+  const [showMonthly, setShowMonthly] = useState(false);
+  const [monthlyCourtId, setMonthlyCourtId] = useState<string>("");
+  const [monthlyName, setMonthlyName] = useState("");
+  const [monthlyPhone, setMonthlyPhone] = useState("");
+  const [monthlySport, setMonthlySport] = useState<Sport | null>(null);
+  const [monthlyMonth, setMonthlyMonth] = useState(() => format(new Date(), "yyyy-MM"));
+  const [monthlyWeekdays, setMonthlyWeekdays] = useState<number[]>([]);
+  const [monthlyTimes, setMonthlyTimes] = useState<string[]>([]);
+  const [monthlySubmitting, setMonthlySubmitting] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -108,6 +117,87 @@ const AdminPage = () => {
       await refreshBlockedSlots();
     } catch {
       toast.error("Erro ao alterar bloqueio");
+    }
+  };
+
+  const weekdayLabels = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+  const toggleMonthlyWeekday = (day: number) => {
+    setMonthlyWeekdays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    );
+  };
+
+  const toggleMonthlyTime = (time: string) => {
+    setMonthlyTimes((prev) =>
+      prev.includes(time) ? prev.filter((t) => t !== time) : [...prev, time].sort()
+    );
+  };
+
+  const handleMonthlyBooking = async () => {
+    if (!monthlyCourtId || !monthlyName.trim() || !monthlyPhone.trim() || monthlyWeekdays.length === 0 || monthlyTimes.length === 0) {
+      toast.error("Preencha todos os campos!");
+      return;
+    }
+    if (monthlyTimes.length < 2) {
+      toast.error("Selecione pelo menos 2 horários (mínimo 1 hora)!");
+      return;
+    }
+
+    setMonthlySubmitting(true);
+    try {
+      const [yearStr, monthStr] = monthlyMonth.split("-");
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10) - 1;
+      const daysInMonth = getDaysInMonth(new Date(year, month));
+      const cName = courtNames[monthlyCourtId];
+      const timeDisplay = monthlyTimes.join(", ");
+      let created = 0;
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const d = new Date(year, month, day);
+        const weekday = getDay(d);
+        if (!monthlyWeekdays.includes(weekday)) continue;
+
+        const dateStr = format(d, "yyyy-MM-dd");
+        await addBooking({
+          courtId: monthlyCourtId,
+          courtName: cName,
+          sport: monthlyCourtId !== "society" ? (monthlySport || undefined) : undefined,
+          date: dateStr,
+          time: timeDisplay,
+          name: monthlyName.trim(),
+          phone: monthlyPhone,
+        });
+        created++;
+      }
+
+      // Confirmar todos de uma vez
+      const allBookings = await getBookings();
+      const monthlyOnes = allBookings.filter(
+        (b) =>
+          b.courtId === monthlyCourtId &&
+          b.name === monthlyName.trim() &&
+          b.status === "pendente" &&
+          b.date.startsWith(monthlyMonth)
+      );
+      for (const b of monthlyOnes) {
+        await updateBookingStatus(b.id, "confirmado");
+      }
+
+      await refreshBookings();
+      setShowMonthly(false);
+      setMonthlyCourtId("");
+      setMonthlyName("");
+      setMonthlyPhone("");
+      setMonthlySport(null);
+      setMonthlyWeekdays([]);
+      setMonthlyTimes([]);
+      toast.success(`${created} agendamento(s) criado(s) e confirmado(s)!`);
+    } catch {
+      toast.error("Erro ao criar agendamentos mensais");
+    } finally {
+      setMonthlySubmitting(false);
     }
   };
 
@@ -369,6 +459,14 @@ const AdminPage = () => {
             <ArrowLeft size={16} /> Voltar
           </motion.button>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowMonthly(true)}
+              className="font-body gap-1.5 rounded-xl text-xs sm:text-sm"
+            >
+              <UserPlus size={14} /> <span className="hidden sm:inline">Mensalista</span>
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -998,6 +1096,185 @@ const AdminPage = () => {
                   className="flex-1 h-10 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl text-sm"
                 >
                   {manualSubmitting ? <Loader2 size={16} className="animate-spin" /> : "Confirmar"}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Modal de agendamento mensalista */}
+      {showMonthly && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 overflow-y-auto py-8">
+          <motion.div
+            className="w-full max-w-md bg-card border border-border rounded-2xl p-5 sm:p-6 shadow-xl my-auto"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display text-lg sm:text-xl">Novo Mensalista</h3>
+              <button onClick={() => setShowMonthly(false)} className="text-muted-foreground hover:text-foreground">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              {/* Mês */}
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Mês</label>
+                <Input
+                  type="month"
+                  value={monthlyMonth}
+                  onChange={(e) => setMonthlyMonth(e.target.value)}
+                  className="h-10 font-body rounded-xl text-sm"
+                />
+              </div>
+
+              {/* Quadra */}
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Quadra</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {courtIds.map((cId) => (
+                    <button
+                      key={cId}
+                      onClick={() => setMonthlyCourtId(cId)}
+                      className={cn(
+                        "py-2 rounded-lg text-xs font-body font-medium transition-all",
+                        monthlyCourtId === cId
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      )}
+                    >
+                      {courtNames[cId]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Esporte (só para quadras, não society) */}
+              {monthlyCourtId && monthlyCourtId !== "society" && (
+                <div>
+                  <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Esporte</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {sports.filter(s => s !== "Futebol Society").map((sport) => (
+                      <button
+                        key={sport}
+                        onClick={() => setMonthlySport(sport)}
+                        className={cn(
+                          "py-2 rounded-lg text-xs font-body font-medium transition-all",
+                          monthlySport === sport
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        )}
+                      >
+                        {sport}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Dias da semana */}
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Dias da semana</label>
+                <div className="grid grid-cols-7 gap-1">
+                  {weekdayLabels.map((label, i) => (
+                    <button
+                      key={i}
+                      onClick={() => toggleMonthlyWeekday(i)}
+                      className={cn(
+                        "py-2 rounded-lg text-[10px] sm:text-xs font-body font-medium transition-all",
+                        monthlyWeekdays.includes(i)
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Horários */}
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">
+                  Horários <span className="text-muted-foreground font-normal">(mín. 2 = 1h)</span>
+                </label>
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                  {timeSlots.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => toggleMonthlyTime(t)}
+                      className={cn(
+                        "py-2 rounded-lg text-xs font-body font-medium transition-all",
+                        monthlyTimes.includes(t)
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      )}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                {monthlyTimes.length > 0 && monthlyTimes.length < 2 && (
+                  <p className="text-[10px] text-amber-500 font-body mt-1">Selecione pelo menos 2 horários</p>
+                )}
+              </div>
+
+              {/* Nome */}
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Nome</label>
+                <Input
+                  value={monthlyName}
+                  onChange={(e) => setMonthlyName(e.target.value)}
+                  placeholder="Nome do mensalista"
+                  className="h-10 font-body rounded-xl text-sm"
+                />
+              </div>
+
+              {/* Telefone */}
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Telefone</label>
+                <Input
+                  value={monthlyPhone}
+                  onChange={(e) => setMonthlyPhone(formatPhone(e.target.value))}
+                  placeholder="(83) 99999-9999"
+                  className="h-10 font-body rounded-xl text-sm"
+                  type="tel"
+                  maxLength={15}
+                />
+              </div>
+
+              {/* Resumo */}
+              {monthlyCourtId && monthlyWeekdays.length > 0 && monthlyTimes.length >= 2 && monthlyName && (
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 text-xs font-body space-y-1">
+                  <p className="font-semibold text-foreground">Resumo:</p>
+                  <p className="text-muted-foreground">
+                    {courtNames[monthlyCourtId]} — {monthlyWeekdays.map(d => weekdayLabels[d]).join(", ")}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Horários: {monthlyTimes.join(", ")}
+                  </p>
+                  <p className="text-muted-foreground">
+                    Cliente: {monthlyName}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowMonthly(false)}
+                  className="flex-1 h-10 font-body rounded-xl text-sm"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleMonthlyBooking}
+                  disabled={monthlySubmitting || !monthlyCourtId || !monthlyName.trim() || !monthlyPhone.trim() || monthlyWeekdays.length === 0 || monthlyTimes.length < 2}
+                  className="flex-1 h-10 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl text-sm"
+                >
+                  {monthlySubmitting ? <Loader2 size={16} className="animate-spin" /> : "Criar Agendamentos"}
                 </Button>
               </div>
             </div>
