@@ -160,7 +160,7 @@ const AdminPage = () => {
         if (!monthlyWeekdays.includes(weekday)) continue;
 
         const dateStr = format(d, "yyyy-MM-dd");
-        await addBooking({
+        const booking = await addBooking({
           courtId: monthlyCourtId,
           courtName: cName,
           sport: monthlyCourtId !== "society" ? (monthlySport || undefined) : undefined,
@@ -169,20 +169,8 @@ const AdminPage = () => {
           name: monthlyName.trim(),
           phone: monthlyPhone,
         });
+        await updateBookingStatus(booking.id, "confirmado");
         created++;
-      }
-
-      // Confirmar todos de uma vez
-      const allBookings = await getBookings();
-      const monthlyOnes = allBookings.filter(
-        (b) =>
-          b.courtId === monthlyCourtId &&
-          b.name === monthlyName.trim() &&
-          b.status === "pendente" &&
-          b.date.startsWith(monthlyMonth)
-      );
-      for (const b of monthlyOnes) {
-        await updateBookingStatus(b.id, "confirmado");
       }
 
       await refreshBookings();
