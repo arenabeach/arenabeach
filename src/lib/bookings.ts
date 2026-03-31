@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 
-export const sports = ["Vôlei", "Beach Tennis", "Futevôlei", "Futebol"] as const;
+export const sports = ["Vôlei", "Beach Tennis", "Futevôlei", "Futebol Society"] as const;
 export type Sport = typeof sports[number];
 
 export interface Booking {

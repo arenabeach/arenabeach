@@ -633,7 +633,7 @@ const BookingPage = () => {
                   <div className="space-y-3 max-h-[450px] overflow-y-auto pr-1">
                     {Object.entries(courtNames)
                     .filter(([id]) => {
-                      if (selectedSport === "Futebol") return id === "society";
+                      if (selectedSport === "Futebol Society") return id === "society";
                       return id !== "society";
                     })
                     .map(([id, cName]) => {
