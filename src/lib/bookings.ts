@@ -15,6 +15,7 @@ export interface Booking {
   status: "pendente" | "confirmado" | "cancelado";
   createdAt: string;
   mpPaymentId?: string;
+  monthlySubscriberId?: string;
 }
 
 // Map Supabase row to Booking interface
@@ -30,6 +31,7 @@ const mapRow = (row: Record<string, unknown>): Booking => ({
   status: row.status as Booking["status"],
   createdAt: row.created_at as string,
   mpPaymentId: (row.mp_payment_id as string) || undefined,
+  monthlySubscriberId: (row.monthly_subscriber_id as string) || undefined,
 });
 
 export const getBookings = async (): Promise<Booking[]> => {
@@ -200,6 +202,14 @@ export const timeSlots = [
   "20:00", "20:30", "21:00", "21:30", "22:00", "22:30",
 ];
 
+export const formatSlotRange = (time: string): string => {
+  const [h, m] = time.split(":").map(Number);
+  const total = h * 60 + m + 30;
+  const eh = String(Math.floor(total / 60) % 24).padStart(2, "0");
+  const em = String(total % 60).padStart(2, "0");
+  return `${time} - ${eh}:${em}`;
+};
+
 // =================== BLOCKED SLOTS ===================
 
 export interface BlockedSlot {
@@ -221,16 +231,48 @@ const mapBlockedRow = (row: Record<string, unknown>): BlockedSlot => ({
 });
 
 // Busca todos os slots bloqueados de uma data (todas as quadras)
+// Inclui bloqueios da data específica E bloqueios permanentes (recurring)
 export const getBlockedSlots = async (
   date: string
 ): Promise<Record<string, Set<string>>> => {
+  const [byDate, recurring] = await Promise.all([
+    supabase.from("blocked_slots").select("court_id, time").eq("date", date),
+    supabase.from("recurring_blocked_slots").select("court_id, time"),
+  ]);
+
+  const result: Record<string, Set<string>> = {};
+
+  if (!byDate.error) {
+    (byDate.data || []).forEach((row) => {
+      const courtId = row.court_id as string;
+      if (!result[courtId]) result[courtId] = new Set();
+      result[courtId].add(row.time as string);
+    });
+  } else {
+    console.error("Erro ao buscar slots bloqueados:", byDate.error);
+  }
+
+  if (!recurring.error) {
+    (recurring.data || []).forEach((row) => {
+      const courtId = row.court_id as string;
+      if (!result[courtId]) result[courtId] = new Set();
+      result[courtId].add(row.time as string);
+    });
+  } else {
+    console.error("Erro ao buscar bloqueios permanentes:", recurring.error);
+  }
+
+  return result;
+};
+
+// Busca apenas os bloqueios permanentes (todas as quadras)
+export const getRecurringBlockedSlots = async (): Promise<Record<string, Set<string>>> => {
   const { data, error } = await supabase
-    .from("blocked_slots")
-    .select("court_id, time")
-    .eq("date", date);
+    .from("recurring_blocked_slots")
+    .select("court_id, time");
 
   if (error) {
-    console.error("Erro ao buscar slots bloqueados:", error);
+    console.error("Erro ao buscar bloqueios permanentes:", error);
     return {};
   }
 
@@ -241,6 +283,39 @@ export const getBlockedSlots = async (
     result[courtId].add(row.time as string);
   });
   return result;
+};
+
+// Bloquear um horário permanentemente (em todos os dias)
+export const blockSlotRecurring = async (
+  courtId: string,
+  time: string,
+  reason?: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from("recurring_blocked_slots")
+    .insert({ court_id: courtId, time, reason: reason || null });
+
+  if (error) {
+    console.error("Erro ao bloquear permanentemente:", error);
+    throw new Error("Erro ao bloquear horário permanentemente");
+  }
+};
+
+// Desbloquear um horário permanente
+export const unblockSlotRecurring = async (
+  courtId: string,
+  time: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from("recurring_blocked_slots")
+    .delete()
+    .eq("court_id", courtId)
+    .eq("time", time);
+
+  if (error) {
+    console.error("Erro ao desbloquear permanente:", error);
+    throw new Error("Erro ao desbloquear horário permanente");
+  }
 };
 
 // Bloquear um slot
@@ -322,4 +397,113 @@ export const unblockAllSlots = async (
     console.error("Erro ao desbloquear todos os slots:", error);
     throw new Error("Erro ao desbloquear todos os horários");
   }
+};
+
+// =================== MONTHLY SUBSCRIBERS (MENSALISTAS) ===================
+
+export interface MonthlySubscriber {
+  id: string;
+  name: string;
+  phone: string;
+  courtId: string;
+  courtName: string;
+  sport?: string;
+  weekdays: number[];
+  times: string[];
+  month: string;
+  active: boolean;
+  createdAt: string;
+}
+
+const mapSubscriberRow = (row: Record<string, unknown>): MonthlySubscriber => ({
+  id: row.id as string,
+  name: row.name as string,
+  phone: row.phone as string,
+  courtId: row.court_id as string,
+  courtName: row.court_name as string,
+  sport: (row.sport as string) || undefined,
+  weekdays: (row.weekdays as number[]) || [],
+  times: (row.times as string[]) || [],
+  month: row.month as string,
+  active: row.active as boolean,
+  createdAt: row.created_at as string,
+});
+
+export const getMonthlySubscribers = async (): Promise<MonthlySubscriber[]> => {
+  const { data, error } = await supabase
+    .from("monthly_subscribers")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Erro ao buscar mensalistas:", error);
+    return [];
+  }
+  return (data || []).map(mapSubscriberRow);
+};
+
+export const addMonthlySubscriber = async (
+  sub: Omit<MonthlySubscriber, "id" | "createdAt" | "active">
+): Promise<MonthlySubscriber> => {
+  const { data, error } = await supabase
+    .from("monthly_subscribers")
+    .insert({
+      name: sub.name,
+      phone: sub.phone,
+      court_id: sub.courtId,
+      court_name: sub.courtName,
+      sport: sub.sport || null,
+      weekdays: sub.weekdays,
+      times: sub.times,
+      month: sub.month,
+      active: true,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Erro ao criar mensalista:", error);
+    throw new Error("Erro ao criar mensalista");
+  }
+  return mapSubscriberRow(data);
+};
+
+export const deleteMonthlySubscriber = async (id: string): Promise<void> => {
+  const { error } = await supabase
+    .from("monthly_subscribers")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    console.error("Erro ao excluir mensalista:", error);
+    throw new Error("Erro ao excluir mensalista");
+  }
+};
+
+// Cria booking vinculado a um mensalista (pula a flag de status pendente)
+export const addBookingForSubscriber = async (
+  booking: Omit<Booking, "id" | "createdAt" | "status">,
+  subscriberId: string
+): Promise<Booking> => {
+  const { data, error } = await supabase
+    .from("bookings")
+    .insert({
+      court_id: booking.courtId,
+      court_name: booking.courtName,
+      sport: booking.sport || null,
+      date: booking.date,
+      time: booking.time,
+      name: booking.name,
+      phone: booking.phone,
+      status: "confirmado",
+      monthly_subscriber_id: subscriberId,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Erro ao criar agendamento de mensalista:", error);
+    throw new Error("Erro ao criar agendamento de mensalista");
+  }
+  return mapRow(data);
 };

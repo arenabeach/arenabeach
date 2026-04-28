@@ -19,6 +19,7 @@ import {
   getBlockedSlots,
   societyDurations,
   sports,
+  formatSlotRange,
 } from "@/lib/bookings";
 import type { DurationOption, Sport } from "@/lib/bookings";
 import Navbar from "@/components/Navbar";
@@ -64,6 +65,18 @@ const formatBRL = (value: number): string => {
 // Preco base das quadras (por hora)
 const QUADRA_PRICE_PER_HOUR = 45;
 const QUADRA_PRICE_PER_SLOT = QUADRA_PRICE_PER_HOUR / 2; // 22,50 por 30min
+const SOCIETY_PRICE_PER_HOUR = 100;
+
+// Calcula preco do Society pela quantidade de slots de 30min
+// 2 slots (1h) = 100 / 3 slots (1h30) = 140 / 4 slots (2h) = 180
+// Acima de 2h: extrapola a R$ 45 por 30min adicional
+const calcSocietyPrice = (slotCount: number): number => {
+  if (slotCount <= 0) return 0;
+  if (slotCount <= 2) return slotCount * 50; // 1h = 100
+  if (slotCount === 3) return 140;
+  if (slotCount === 4) return 180;
+  return 180 + (slotCount - 4) * 45;
+};
 
 const BookingPage = () => {
   const navigate = useNavigate();
@@ -104,10 +117,13 @@ const BookingPage = () => {
   };
 
   const isSociety = selectedCourt === "society";
+  const isSocietySport = selectedSport === "Futebol Society";
   const courtName = selectedCourt ? courtNames[selectedCourt] || "" : "";
 
-  // Preco preview (antes de escolher quadra, usa preco padrao das quadras)
-  const previewTotal = selectedTimes.length * QUADRA_PRICE_PER_SLOT;
+  // Preco preview (antes de escolher quadra, usa preco do esporte selecionado)
+  const previewTotal = isSocietySport
+    ? calcSocietyPrice(selectedTimes.length)
+    : selectedTimes.length * QUADRA_PRICE_PER_SLOT;
 
   // Preco final (apos escolher quadra)
   const totalPrice = isSociety
@@ -365,7 +381,11 @@ const BookingPage = () => {
             AGENDAR <span className="text-primary">HORÁRIO</span>
           </h1>
           <p className="text-muted-foreground font-body text-xs xs:text-sm sm:text-base mb-4 xs:mb-6 sm:mb-8">
-            Quadras: <span className="text-primary font-semibold">R$ {QUADRA_PRICE_PER_HOUR}/hora</span> (R$ {QUADRA_PRICE_PER_SLOT.toFixed(2).replace(".", ",")}/30min) — mínimo 1 hora
+            {isSocietySport ? (
+              <>Campo Society: <span className="text-primary font-semibold">R$ {SOCIETY_PRICE_PER_HOUR}/hora</span> — mínimo 1 hora</>
+            ) : (
+              <>Quadras: <span className="text-primary font-semibold">R$ {QUADRA_PRICE_PER_HOUR}/hora</span> (R$ {QUADRA_PRICE_PER_SLOT.toFixed(2).replace(".", ",")}/30min) — mínimo 1 hora</>
+            )}
           </p>
 
           {/* Steps indicator */}
@@ -466,7 +486,7 @@ const BookingPage = () => {
                     </label>
                     {selectedTimes.length > 0 && (
                       <span className="text-xs font-body font-semibold text-primary bg-primary/10 px-3 py-1 rounded-full">
-                        {formatDuration(selectedTimes.length)} = {formatBRL(selectedTimes.length * QUADRA_PRICE_PER_SLOT)}
+                        {formatDuration(selectedTimes.length)} = {formatBRL(previewTotal)}
                       </span>
                     )}
                   </div>
@@ -476,7 +496,7 @@ const BookingPage = () => {
                       <span className="ml-2 text-sm font-body text-muted-foreground">Carregando horários...</span>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-1.5 sm:gap-2">
+                    <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 gap-1.5 sm:gap-2">
                       {timeSlots.map((t) => {
                         const isSelected = selectedTimes.includes(t);
                         return (
@@ -484,13 +504,13 @@ const BookingPage = () => {
                             key={t}
                             onClick={() => handleToggleTime(t)}
                             className={cn(
-                              "py-2.5 rounded-xl text-xs sm:text-sm font-body font-medium transition-all duration-200",
+                              "py-2.5 px-1 rounded-xl text-[10px] xs:text-xs sm:text-sm font-body font-medium transition-all duration-200 whitespace-nowrap",
                               isSelected
                                 ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 scale-105"
                                 : "bg-card border border-border hover:border-primary/50 hover:text-primary hover:bg-primary/5"
                             )}
                           >
-                            {t}
+                            {formatSlotRange(t)}
                           </button>
                         );
                       })}
@@ -509,17 +529,26 @@ const BookingPage = () => {
 
                   {/* Tabela de precos */}
                   <div className="mt-4 bg-card border border-border/50 rounded-xl p-3">
-                    <p className="text-xs font-body font-semibold text-foreground mb-2">Tabela de valores (Quadras)</p>
+                    <p className="text-xs font-body font-semibold text-foreground mb-2">
+                      {isSocietySport ? "Tabela de valores (Campo Society)" : "Tabela de valores (Quadras)"}
+                    </p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-body">
-                      {[
-                        { slots: 2, label: "1h" },
-                        { slots: 3, label: "1h30" },
-                        { slots: 4, label: "2h" },
-                        { slots: 5, label: "2h30" },
-                        { slots: 6, label: "3h" },
-                        { slots: 7, label: "3h30" },
-                        { slots: 8, label: "4h" },
-                      ].map(({ slots, label }) => (
+                      {(isSocietySport
+                        ? [
+                            { slots: 2, label: "1h" },
+                            { slots: 3, label: "1h30" },
+                            { slots: 4, label: "2h" },
+                          ]
+                        : [
+                            { slots: 2, label: "1h" },
+                            { slots: 3, label: "1h30" },
+                            { slots: 4, label: "2h" },
+                            { slots: 5, label: "2h30" },
+                            { slots: 6, label: "3h" },
+                            { slots: 7, label: "3h30" },
+                            { slots: 8, label: "4h" },
+                          ]
+                      ).map(({ slots, label }) => (
                         <div
                           key={slots}
                           className={cn(
@@ -530,7 +559,7 @@ const BookingPage = () => {
                           )}
                         >
                           <span className="block font-medium">{label}</span>
-                          <span>{formatBRL(slots * QUADRA_PRICE_PER_SLOT)}</span>
+                          <span>{formatBRL(isSocietySport ? calcSocietyPrice(slots) : slots * QUADRA_PRICE_PER_SLOT)}</span>
                         </div>
                       ))}
                     </div>
@@ -676,7 +705,7 @@ const BookingPage = () => {
                               {availableSlots.length} livres / {bookedCount} ocupados
                             </span>
                           </div>
-                          <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-1">
+                          <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 gap-1">
                             {timeSlots.map((t) => {
                               const booked = isSlotBooked(id, t);
                               const isMyTime = selectedTimes.includes(t);
@@ -684,7 +713,7 @@ const BookingPage = () => {
                                 <span
                                   key={t}
                                   className={cn(
-                                    "text-[10px] sm:text-xs text-center py-1 rounded-lg font-body",
+                                    "text-[10px] sm:text-xs text-center py-1 px-1 rounded-lg font-body whitespace-nowrap",
                                     booked
                                       ? "bg-destructive/15 text-destructive/50 line-through"
                                       : isMyTime
@@ -692,7 +721,7 @@ const BookingPage = () => {
                                       : "bg-palm/15 text-palm font-medium"
                                   )}
                                 >
-                                  {t}
+                                  {formatSlotRange(t)}
                                 </span>
                               );
                             })}

@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots } from "@/lib/bookings";
-import type { Sport } from "@/lib/bookings";
+import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber } from "@/lib/bookings";
+import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { verifyAdminPassword, createSession, isSessionValid, clearSession, isPasswordConfigured } from "@/lib/auth";
 import { format, getDay, getDaysInMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus, Users, Repeat, Calendar as CalendarOnly } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -31,7 +31,7 @@ const AdminPage = () => {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<"todos" | Booking["status"]>("todos");
   const [searchTerm, setSearchTerm] = useState("");
-  const [tab, setTab] = useState<"quadras" | "lista" | "caixa">("quadras");
+  const [tab, setTab] = useState<"quadras" | "lista" | "caixa" | "mensalistas">("quadras");
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [manualBooking, setManualBooking] = useState<{ courtId: string; courtName: string; time: string } | null>(null);
   const [manualName, setManualName] = useState("");
@@ -39,7 +39,11 @@ const AdminPage = () => {
   const [manualSport, setManualSport] = useState<Sport | null>(null);
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [blockedSlots, setBlockedSlots] = useState<Record<string, Set<string>>>({});
+  const [recurringBlockedSlots, setRecurringBlockedSlots] = useState<Record<string, Set<string>>>({});
   const [blockMode, setBlockMode] = useState(false);
+  const [blockType, setBlockType] = useState<"date" | "recurring">("date");
+  const [subscribers, setSubscribers] = useState<MonthlySubscriber[]>([]);
+  const [subscribersLoading, setSubscribersLoading] = useState(false);
   const [showMonthly, setShowMonthly] = useState(false);
   const [monthlyCourtId, setMonthlyCourtId] = useState<string>("");
   const [monthlyName, setMonthlyName] = useState("");
@@ -71,31 +75,65 @@ const AdminPage = () => {
 
   const refreshBlockedSlots = useCallback(async () => {
     try {
-      const data = await getBlockedSlots(selectedDate);
+      const [data, recurring] = await Promise.all([
+        getBlockedSlots(selectedDate),
+        getRecurringBlockedSlots(),
+      ]);
       setBlockedSlots(data);
+      setRecurringBlockedSlots(recurring);
     } catch {
       // silent
     }
   }, [selectedDate]);
 
+  const refreshSubscribers = useCallback(async () => {
+    setSubscribersLoading(true);
+    try {
+      const data = await getMonthlySubscribers();
+      setSubscribers(data);
+    } catch {
+      toast.error("Erro ao carregar mensalistas");
+    } finally {
+      setSubscribersLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (authenticated) {
       refreshBlockedSlots();
+      refreshSubscribers();
     }
-  }, [authenticated, refreshBlockedSlots]);
+  }, [authenticated, refreshBlockedSlots, refreshSubscribers]);
 
   const isSlotBlocked = (courtId: string, time: string): boolean => {
     return blockedSlots[courtId]?.has(time) || false;
   };
 
+  const isSlotBlockedRecurring = (courtId: string, time: string): boolean => {
+    return recurringBlockedSlots[courtId]?.has(time) || false;
+  };
+
   const handleToggleBlock = async (courtId: string, time: string) => {
     try {
-      if (isSlotBlocked(courtId, time)) {
-        await unblockSlot(courtId, selectedDate, time);
-        toast.success(`Horário ${time} desbloqueado!`);
+      if (blockType === "recurring") {
+        if (isSlotBlockedRecurring(courtId, time)) {
+          await unblockSlotRecurring(courtId, time);
+          toast.success(`Bloqueio permanente removido de ${formatSlotRange(time)}!`);
+        } else {
+          await blockSlotRecurring(courtId, time);
+          toast.success(`Horário ${formatSlotRange(time)} bloqueado em todos os dias!`);
+        }
       } else {
-        await blockSlot(courtId, selectedDate, time);
-        toast.success(`Horário ${time} bloqueado!`);
+        if (isSlotBlocked(courtId, time) && !isSlotBlockedRecurring(courtId, time)) {
+          await unblockSlot(courtId, selectedDate, time);
+          toast.success(`Horário ${formatSlotRange(time)} desbloqueado!`);
+        } else if (isSlotBlockedRecurring(courtId, time)) {
+          toast.error("Esse horário tem bloqueio permanente. Desabilite no modo Permanente.");
+          return;
+        } else {
+          await blockSlot(courtId, selectedDate, time);
+          toast.success(`Horário ${formatSlotRange(time)} bloqueado!`);
+        }
       }
       await refreshBlockedSlots();
     } catch {
@@ -152,15 +190,28 @@ const AdminPage = () => {
       const daysInMonth = getDaysInMonth(new Date(year, month));
       const cName = courtNames[monthlyCourtId];
       const timeDisplay = monthlyTimes.join(", ");
-      let created = 0;
 
+      // 1. Criar o registro do mensalista
+      const subscriber = await addMonthlySubscriber({
+        name: monthlyName.trim(),
+        phone: monthlyPhone,
+        courtId: monthlyCourtId,
+        courtName: cName,
+        sport: monthlyCourtId !== "society" ? (monthlySport || undefined) : undefined,
+        weekdays: monthlyWeekdays,
+        times: monthlyTimes,
+        month: monthlyMonth,
+      });
+
+      // 2. Criar bookings vinculados ao mensalista
+      let created = 0;
       for (let day = 1; day <= daysInMonth; day++) {
         const d = new Date(year, month, day);
         const weekday = getDay(d);
         if (!monthlyWeekdays.includes(weekday)) continue;
 
         const dateStr = format(d, "yyyy-MM-dd");
-        const booking = await addBooking({
+        await addBookingForSubscriber({
           courtId: monthlyCourtId,
           courtName: cName,
           sport: monthlyCourtId !== "society" ? (monthlySport || undefined) : undefined,
@@ -168,12 +219,12 @@ const AdminPage = () => {
           time: timeDisplay,
           name: monthlyName.trim(),
           phone: monthlyPhone,
-        });
-        await updateBookingStatus(booking.id, "confirmado");
+        }, subscriber.id);
         created++;
       }
 
       await refreshBookings();
+      await refreshSubscribers();
       setShowMonthly(false);
       setMonthlyCourtId("");
       setMonthlyName("");
@@ -181,11 +232,22 @@ const AdminPage = () => {
       setMonthlySport(null);
       setMonthlyWeekdays([]);
       setMonthlyTimes([]);
-      toast.success(`${created} agendamento(s) criado(s) e confirmado(s)!`);
+      toast.success(`Mensalista cadastrado com ${created} agendamento(s)!`);
     } catch {
       toast.error("Erro ao criar agendamentos mensais");
     } finally {
       setMonthlySubmitting(false);
+    }
+  };
+
+  const handleDeleteSubscriber = async (id: string, name: string) => {
+    if (!window.confirm(`Excluir mensalista "${name}"? Os agendamentos vinculados não serão removidos automaticamente.`)) return;
+    try {
+      await deleteMonthlySubscriber(id);
+      await refreshSubscribers();
+      toast.success("Mensalista excluído.");
+    } catch {
+      toast.error("Erro ao excluir mensalista");
     }
   };
 
@@ -534,6 +596,17 @@ const AdminPage = () => {
             >
               <DollarSign size={14} /> Caixa
             </button>
+            <button
+              onClick={() => setTab("mensalistas")}
+              className={cn(
+                "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-body font-medium transition-all",
+                tab === "mensalistas"
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              )}
+            >
+              <Users size={14} /> Mensalistas
+            </button>
           </div>
 
           {loading && (
@@ -585,9 +658,40 @@ const AdminPage = () => {
               </div>
 
               {blockMode && (
-                <p className="text-center text-xs font-body text-red-500">
-                  Clique nos horários livres para bloquear/desbloquear. Clientes não poderão reservar horários bloqueados.
-                </p>
+                <div className="space-y-2">
+                  {/* Tipo de bloqueio */}
+                  <div className="flex justify-center gap-2">
+                    <button
+                      onClick={() => setBlockType("date")}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-body font-medium transition-all",
+                        blockType === "date"
+                          ? "bg-red-500 text-white"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      )}
+                    >
+                      <CalendarOnly size={12} />
+                      Apenas nesta data
+                    </button>
+                    <button
+                      onClick={() => setBlockType("recurring")}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-body font-medium transition-all",
+                        blockType === "recurring"
+                          ? "bg-red-500 text-white"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      )}
+                    >
+                      <Repeat size={12} />
+                      Permanente (todos os dias)
+                    </button>
+                  </div>
+                  <p className="text-center text-xs font-body text-red-500">
+                    {blockType === "recurring"
+                      ? "Clique para bloquear/desbloquear permanentemente em TODAS as datas."
+                      : "Clique nos horários livres para bloquear/desbloquear apenas nesta data."}
+                  </p>
+                </div>
               )}
 
               {/* All courts grid */}
@@ -634,13 +738,14 @@ const AdminPage = () => {
 
                       {/* Time slots grid */}
                       <div className="p-2 sm:p-3">
-                        <div className="grid grid-cols-4 xs:grid-cols-5 sm:grid-cols-6 gap-1 sm:gap-1.5">
+                        <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-3 md:grid-cols-4 gap-1 sm:gap-1.5">
                           {timeSlots.map((time) => {
                             const booking = getSlotBooking(cId, selectedDate, time);
                             const isBooked = !!booking;
                             const isPendente = booking?.status === "pendente";
                             const isConfirmado = booking?.status === "confirmado";
                             const blocked = isSlotBlocked(cId, time);
+                            const blockedRecurring = isSlotBlockedRecurring(cId, time);
 
                             return (
                               <div
@@ -658,6 +763,8 @@ const AdminPage = () => {
                                     ? "bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700"
                                     : isPendente
                                     ? "bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700"
+                                    : blockedRecurring
+                                    ? "bg-purple-100 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-700 cursor-pointer"
                                     : blocked
                                     ? "bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 cursor-pointer"
                                     : blockMode
@@ -666,13 +773,14 @@ const AdminPage = () => {
                                 )}
                               >
                                 <p className={cn(
-                                  "font-body text-xs font-semibold",
+                                  "font-body text-[10px] sm:text-xs font-semibold whitespace-nowrap",
                                   isConfirmado ? "text-emerald-700 dark:text-emerald-400"
                                     : isPendente ? "text-amber-700 dark:text-amber-400"
+                                    : blockedRecurring ? "text-purple-700 dark:text-purple-400"
                                     : blocked ? "text-red-600 dark:text-red-400"
                                     : "text-muted-foreground/50"
                                 )}>
-                                  {time}
+                                  {formatSlotRange(time)}
                                 </p>
                                 {isBooked ? (
                                   <div className="mt-0.5">
@@ -697,6 +805,13 @@ const AdminPage = () => {
                                         {isPendente ? "Pend." : "Conf."}
                                       </span>
                                     </div>
+                                  </div>
+                                ) : blockedRecurring ? (
+                                  <div className="mt-0.5">
+                                    <Repeat size={10} className="text-purple-500 dark:text-purple-400 mx-auto" />
+                                    <p className="text-[8px] font-body text-purple-500 dark:text-purple-400 mt-0.5">
+                                      Permanente
+                                    </p>
                                   </div>
                                 ) : blocked ? (
                                   <div className="mt-0.5">
@@ -1004,6 +1119,93 @@ const AdminPage = () => {
               )}
             </div>
           )}
+
+          {/* =================== TAB: MENSALISTAS =================== */}
+          {tab === "mensalistas" && !loading && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-body text-muted-foreground">
+                  {subscribers.length} mensalista(s) cadastrado(s)
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowMonthly(true)}
+                  className="font-body gap-1.5 rounded-xl text-xs"
+                >
+                  <UserPlus size={14} /> Novo
+                </Button>
+              </div>
+
+              {subscribersLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                </div>
+              ) : subscribers.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground font-body">
+                  <Users size={40} className="mx-auto mb-3 opacity-40" />
+                  <p className="text-base sm:text-lg">Nenhum mensalista cadastrado</p>
+                  <p className="text-xs sm:text-sm mt-1">Clique em "Novo" para cadastrar</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {subscribers.map((sub) => {
+                    const linkedCount = bookings.filter(
+                      (b) => b.monthlySubscriberId === sub.id && b.status !== "cancelado"
+                    ).length;
+                    return (
+                      <motion.div
+                        key={sub.id}
+                        className="glass-card rounded-xl p-4"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                      >
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="min-w-0">
+                            <h3 className="font-display text-base sm:text-lg text-foreground">
+                              {sub.name}
+                            </h3>
+                            <p className="text-xs font-body text-muted-foreground">{sub.phone}</p>
+                          </div>
+                          <Button
+                            onClick={() => handleDeleteSubscriber(sub.id, sub.name)}
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-destructive font-body rounded-lg h-8 px-2 shrink-0"
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-body text-muted-foreground">
+                          <div>
+                            <span className="text-foreground/70 font-medium">Quadra: </span>
+                            {sub.courtName}
+                            {sub.sport && ` • ${sub.sport}`}
+                          </div>
+                          <div>
+                            <span className="text-foreground/70 font-medium">Mês: </span>
+                            {sub.month}
+                          </div>
+                          <div>
+                            <span className="text-foreground/70 font-medium">Dias: </span>
+                            {sub.weekdays.map((d) => weekdayLabels[d]).join(", ")}
+                          </div>
+                          <div>
+                            <span className="text-foreground/70 font-medium">Horários: </span>
+                            {sub.times.length > 0 && `${sub.times[0]} às ${formatSlotRange(sub.times[sub.times.length - 1]).split(" - ")[1]}`}
+                          </div>
+                          <div className="sm:col-span-2">
+                            <span className="text-foreground/70 font-medium">Agendamentos ativos: </span>
+                            <span className="text-emerald-500 font-semibold">{linkedCount}</span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </motion.div>
       </div>
 
@@ -1188,19 +1390,19 @@ const AdminPage = () => {
                 <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">
                   Horários <span className="text-muted-foreground font-normal">(mín. 2 = 1h)</span>
                 </label>
-                <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                   {timeSlots.map((t) => (
                     <button
                       key={t}
                       onClick={() => toggleMonthlyTime(t)}
                       className={cn(
-                        "py-2 rounded-lg text-xs font-body font-medium transition-all",
+                        "py-2 px-1 rounded-lg text-[10px] sm:text-xs font-body font-medium transition-all whitespace-nowrap",
                         monthlyTimes.includes(t)
                           ? "bg-primary text-primary-foreground"
                           : "bg-muted text-muted-foreground hover:bg-muted/80"
                       )}
                     >
-                      {t}
+                      {formatSlotRange(t)}
                     </button>
                   ))}
                 </div>
