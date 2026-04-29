@@ -472,6 +472,17 @@ export const addMonthlySubscriber = async (
 };
 
 export const deleteMonthlySubscriber = async (id: string): Promise<void> => {
+  // Excluir os agendamentos vinculados primeiro
+  const { error: bookingsError } = await supabase
+    .from("bookings")
+    .delete()
+    .eq("monthly_subscriber_id", id);
+
+  if (bookingsError) {
+    console.error("Erro ao excluir agendamentos do mensalista:", bookingsError);
+    throw new Error("Erro ao excluir agendamentos do mensalista");
+  }
+
   const { error } = await supabase
     .from("monthly_subscribers")
     .delete()

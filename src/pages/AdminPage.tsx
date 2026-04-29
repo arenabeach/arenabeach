@@ -246,11 +246,11 @@ const AdminPage = () => {
   };
 
   const handleDeleteSubscriber = async (id: string, name: string) => {
-    if (!window.confirm(`Excluir mensalista "${name}"? Os agendamentos vinculados não serão removidos automaticamente.`)) return;
+    if (!window.confirm(`Excluir mensalista "${name}"? Todos os agendamentos vinculados também serão excluídos.`)) return;
     try {
       await deleteMonthlySubscriber(id);
-      await refreshSubscribers();
-      toast.success("Mensalista excluído.");
+      await Promise.all([refreshSubscribers(), refreshBookings()]);
+      toast.success("Mensalista e agendamentos excluídos.");
     } catch {
       toast.error("Erro ao excluir mensalista");
     }
