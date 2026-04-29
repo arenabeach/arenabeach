@@ -411,6 +411,7 @@ export interface MonthlySubscriber {
   weekdays: number[];
   times: string[];
   month: string;
+  price: number;
   active: boolean;
   createdAt: string;
 }
@@ -425,6 +426,7 @@ const mapSubscriberRow = (row: Record<string, unknown>): MonthlySubscriber => ({
   weekdays: (row.weekdays as number[]) || [],
   times: (row.times as string[]) || [],
   month: row.month as string,
+  price: Number(row.price) || 0,
   active: row.active as boolean,
   createdAt: row.created_at as string,
 });
@@ -456,6 +458,7 @@ export const addMonthlySubscriber = async (
       weekdays: sub.weekdays,
       times: sub.times,
       month: sub.month,
+      price: sub.price,
       active: true,
     })
     .select()

@@ -53,6 +53,7 @@ const AdminPage = () => {
   const [monthlyMonth, setMonthlyMonth] = useState(() => format(new Date(), "yyyy-MM"));
   const [monthlyWeekdays, setMonthlyWeekdays] = useState<number[]>([]);
   const [monthlyTimes, setMonthlyTimes] = useState<string[]>([]);
+  const [monthlyPrice, setMonthlyPrice] = useState("");
   const [monthlySubmitting, setMonthlySubmitting] = useState(false);
   const navigate = useNavigate();
 
@@ -193,6 +194,7 @@ const AdminPage = () => {
       const timeDisplay = monthlyTimes.join(", ");
 
       // 1. Criar o registro do mensalista
+      const priceValue = parseFloat(monthlyPrice.replace(",", ".")) || 0;
       const subscriber = await addMonthlySubscriber({
         name: monthlyName.trim(),
         phone: monthlyPhone,
@@ -202,6 +204,7 @@ const AdminPage = () => {
         weekdays: monthlyWeekdays,
         times: monthlyTimes,
         month: monthlyMonth,
+        price: priceValue,
       });
 
       // 2. Criar bookings vinculados ao mensalista
@@ -233,6 +236,7 @@ const AdminPage = () => {
       setMonthlySport(null);
       setMonthlyWeekdays([]);
       setMonthlyTimes([]);
+      setMonthlyPrice("");
       toast.success(`Mensalista cadastrado com ${created} agendamento(s)!`);
     } catch {
       toast.error("Erro ao criar agendamentos mensais");
@@ -378,6 +382,16 @@ const AdminPage = () => {
 
   // Calcular receita de um booking confirmado
   const getBookingRevenue = (b: Booking): number => {
+    // Mensalista com preço manual: divide o total pelo número de agendamentos vinculados
+    if (b.monthlySubscriberId) {
+      const sub = subscribers.find((s) => s.id === b.monthlySubscriberId);
+      if (sub && sub.price > 0) {
+        const subBookingCount = bookings.filter(
+          (x) => x.monthlySubscriberId === sub.id && x.status !== "cancelado"
+        ).length;
+        if (subBookingCount > 0) return sub.price / subBookingCount;
+      }
+    }
     if (b.courtId === "society") {
       // Society: tenta inferir pelo número de slots
       const slots = b.time.split(", ").length;
@@ -1199,9 +1213,20 @@ const AdminPage = () => {
                             <span className="text-foreground/70 font-medium">Horários: </span>
                             {sub.times.length > 0 && `${sub.times[0]} às ${formatSlotRange(sub.times[sub.times.length - 1]).split(" - ")[1]}`}
                           </div>
+                          <div>
+                            <span className="text-foreground/70 font-medium">Valor mensal: </span>
+                            <span className="text-emerald-500 font-semibold">
+                              R$ {sub.price.toFixed(2).replace(".", ",")}
+                            </span>
+                          </div>
                           <div className="sm:col-span-2">
                             <span className="text-foreground/70 font-medium">Agendamentos ativos: </span>
                             <span className="text-emerald-500 font-semibold">{linkedCount}</span>
+                            {sub.price > 0 && linkedCount > 0 && (
+                              <span className="text-muted-foreground ml-2">
+                                (R$ {(sub.price / linkedCount).toFixed(2).replace(".", ",")} por sessão)
+                              </span>
+                            )}
                           </div>
                         </div>
                       </motion.div>
@@ -1438,6 +1463,23 @@ const AdminPage = () => {
                   type="tel"
                   maxLength={15}
                 />
+              </div>
+
+              {/* Valor mensal */}
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">
+                  Valor mensal (R$)
+                </label>
+                <Input
+                  value={monthlyPrice}
+                  onChange={(e) => setMonthlyPrice(e.target.value.replace(/[^\d,.]/g, ""))}
+                  placeholder="320,00"
+                  className="h-10 font-body rounded-xl text-sm"
+                  inputMode="decimal"
+                />
+                <p className="text-[10px] text-muted-foreground font-body mt-1">
+                  Valor combinado com o mensalista. Será distribuído por sessão no caixa.
+                </p>
               </div>
 
               {/* Resumo */}
