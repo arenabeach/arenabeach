@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { CalendarCheck, QrCode, MessageCircle, CheckCircle } from "lucide-react";
+import { CalendarCheck, QrCode, CheckCircle } from "lucide-react";
 
 const steps = [
   {
@@ -10,17 +10,12 @@ const steps = [
   {
     icon: QrCode,
     title: "Pague via PIX",
-    desc: "Copie a chave PIX e faça a transferência do valor da reserva",
-  },
-  {
-    icon: MessageCircle,
-    title: "Envie o Comprovante",
-    desc: "Mande o comprovante de pagamento pelo WhatsApp",
+    desc: "Escaneie o QR Code ou copie o código PIX para pagar",
   },
   {
     icon: CheckCircle,
-    title: "Confirmação",
-    desc: "A arena verifica o pagamento e confirma seu agendamento",
+    title: "Confirmação Automática",
+    desc: "Seu agendamento é confirmado assim que o pagamento cair",
   },
 ];
 
@@ -41,7 +36,7 @@ const HowItWorks = () => {
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 xs:gap-3 sm:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 xs:gap-4 sm:gap-6">
           {steps.map((step, i) => (
             <motion.div
               key={i}
