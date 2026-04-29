@@ -3,23 +3,13 @@ import { PartyPopper, Users, Music, Utensils, Phone } from "lucide-react";
 import foto01 from "@/assets/foto 01.jpeg";
 import foto02 from "@/assets/foto 02.jpeg";
 import foto03 from "@/assets/foto 03.jpeg";
+import foto04 from "@/assets/foto 04.png";
+import foto05 from "@/assets/foto 05.jpeg";
 
 const features = [
-  {
-    icon: Users,
-    title: "Espaço Amplo",
-    desc: "Quadras e área reservada para seu evento com conforto e segurança",
-  },
-  {
-    icon: Music,
-    title: "Estrutura Completa",
-    desc: "Som, iluminação e espaço para decoração do jeito que você quiser",
-  },
-  {
-    icon: Utensils,
-    title: "Área para Comes e Bebes",
-    desc: "Espaço dedicado para mesa de bolo, salgados e bebidas",
-  },
+  { icon: Users, title: "Espaço Amplo" },
+  { icon: Music, title: "Estrutura Completa" },
+  { icon: Utensils, title: "Área de Convivência" },
 ];
 
 const BirthdaySection = () => {
@@ -50,23 +40,18 @@ const BirthdaySection = () => {
               {features.map((feature, i) => (
                 <motion.div
                   key={i}
-                  className="flex items-start gap-2.5 xs:gap-3"
+                  className="flex items-center gap-2.5 xs:gap-3"
                   initial={{ opacity: 0, x: -20 }}
                   whileInView={{ opacity: 1, x: 0 }}
                   viewport={{ once: true }}
                   transition={{ delay: 0.2 + i * 0.1, duration: 0.4 }}
                 >
-                  <div className="w-8 h-8 xs:w-9 xs:h-9 rounded-lg xs:rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-8 h-8 xs:w-9 xs:h-9 rounded-lg xs:rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
                     <feature.icon className="w-3.5 h-3.5 xs:w-4 xs:h-4 text-primary" />
                   </div>
-                  <div>
-                    <h3 className="font-display text-sm xs:text-base tracking-wide text-foreground">
-                      {feature.title}
-                    </h3>
-                    <p className="text-[10px] xs:text-xs sm:text-sm font-body text-muted-foreground">
-                      {feature.desc}
-                    </p>
-                  </div>
+                  <h3 className="font-display text-sm xs:text-base tracking-wide text-foreground">
+                    {feature.title}
+                  </h3>
                 </motion.div>
               ))}
             </div>
@@ -129,6 +114,34 @@ const BirthdaySection = () => {
               <img
                 src={foto03}
                 alt="Aniversário na Alça Beach Arena"
+                className="w-full h-full object-cover rounded-xl xs:rounded-2xl sm:rounded-3xl shadow-lg aspect-square"
+              />
+            </motion.div>
+
+            {/* Foto 04 */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.6, duration: 0.5 }}
+            >
+              <img
+                src={foto04}
+                alt="Festa na Alça Beach Arena"
+                className="w-full h-full object-cover rounded-xl xs:rounded-2xl sm:rounded-3xl shadow-lg aspect-square"
+              />
+            </motion.div>
+
+            {/* Foto 05 */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+              transition={{ delay: 0.7, duration: 0.5 }}
+            >
+              <img
+                src={foto05}
+                alt="Evento na Alça Beach Arena"
                 className="w-full h-full object-cover rounded-xl xs:rounded-2xl sm:rounded-3xl shadow-lg aspect-square"
               />
             </motion.div>
