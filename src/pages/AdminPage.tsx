@@ -350,7 +350,7 @@ const AdminPage = () => {
     try {
       await deleteBooking(id);
       await refreshBookings();
-      toast.success("Agendamento excluido.");
+      toast.success("Agendamento excluído.");
     } catch {
       toast.error("Erro ao excluir agendamento");
     }
@@ -954,7 +954,7 @@ const AdminPage = () => {
                               </div>
                               <div className="text-xs sm:text-sm font-body text-muted-foreground space-y-0.5">
                                 {booking.sport && <p>Esporte: {booking.sport}</p>}
-                                <p>{booking.date} as {booking.time}</p>
+                                <p>{booking.date} às {booking.time}</p>
                                 <p>{booking.name} - {booking.phone}</p>
                                 <p className="text-[10px] sm:text-xs text-muted-foreground/50">
                                   Criado em {format(new Date(booking.createdAt), "dd/MM/yyyy HH:mm")}

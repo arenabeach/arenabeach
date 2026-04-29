@@ -62,12 +62,12 @@ const formatBRL = (value: number): string => {
   return `R$ ${value.toFixed(2).replace(".", ",")}`;
 };
 
-// Preco base das quadras (por hora)
+// Preço base das quadras (por hora)
 const QUADRA_PRICE_PER_HOUR = 45;
 const QUADRA_PRICE_PER_SLOT = QUADRA_PRICE_PER_HOUR / 2; // 22,50 por 30min
 const SOCIETY_PRICE_PER_HOUR = 100;
 
-// Calcula preco do Society pela quantidade de slots de 30min
+// Calcula preço do Society pela quantidade de slots de 30min
 // 2 slots (1h) = 100 / 3 slots (1h30) = 140 / 4 slots (2h) = 180
 // Acima de 2h: extrapola a R$ 45 por 30min adicional
 const calcSocietyPrice = (slotCount: number): number => {
@@ -120,12 +120,12 @@ const BookingPage = () => {
   const isSocietySport = selectedSport === "Futebol Society";
   const courtName = selectedCourt ? courtNames[selectedCourt] || "" : "";
 
-  // Preco preview (antes de escolher quadra, usa preco do esporte selecionado)
+  // Preço preview (antes de escolher quadra, usa preço do esporte selecionado)
   const previewTotal = isSocietySport
     ? calcSocietyPrice(selectedTimes.length)
     : selectedTimes.length * QUADRA_PRICE_PER_SLOT;
 
-  // Preco final (apos escolher quadra)
+  // Preço final (após escolher quadra)
   const totalPrice = isSociety
     ? (selectedDuration?.price || "R$ 100")
     : selectedCourt
@@ -251,7 +251,7 @@ const BookingPage = () => {
     setSelectedDuration(null);
   };
 
-  // Calcula o valor numerico do total
+  // Calcula o valor numérico do total
   const getTotalAmount = (): number => {
     if (isSociety && selectedDuration) {
       return parseFloat(selectedDuration.price.replace(/[^\d,]/g, "").replace(",", "."));
@@ -527,7 +527,7 @@ const BookingPage = () => {
                     </p>
                   )}
 
-                  {/* Tabela de precos */}
+                  {/* Tabela de preços */}
                   <div className="mt-4 bg-card border border-border/50 rounded-xl p-3">
                     <p className="text-xs font-body font-semibold text-foreground mb-2">
                       {isSocietySport ? "Tabela de valores (Campo Society)" : "Tabela de valores (Quadras)"}
@@ -882,7 +882,7 @@ const BookingPage = () => {
                             <h3 className="font-display text-xl sm:text-2xl">Pague via PIX</h3>
                           </div>
                           <p className="text-sm text-muted-foreground font-body">
-                            Escaneie o QR Code ou copie o codigo para pagar
+                            Escaneie o QR Code ou copie o código para pagar
                           </p>
 
                           {/* QR Code Image */}
