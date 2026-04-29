@@ -1,5 +1,5 @@
-const ADMIN_EMAIL = "jeffersonbernardom@gmail.com";
-const ADMIN_PASSWORD = "zelda123";
+const ADMIN_EMAIL = "arenaalcabeach@gmail.com";
+const ADMIN_PASSWORD = "viniarena2026";
 const SESSION_KEY = "ala-beach-admin-session";
 const SESSION_DURATION = 4 * 60 * 60 * 1000; // 4 hours
 
