@@ -19,7 +19,7 @@ const Footer = () => {
           </div>
 
           <div className="text-center sm:text-left">
-            <h4 className="font-display text-base xs:text-lg tracking-wide text-foreground mb-2 xs:mb-3">Contato</h4>
+            <h4 className="font-display text-base xs:text-lg tracking-wide text-foreground mb-2 xs:mb-3">Contatos</h4>
             <div className="space-y-1.5 xs:space-y-2 text-xs xs:text-sm font-body text-muted-foreground">
               <a href="tel:+5583999828597" className="flex items-center justify-center sm:justify-start gap-2 hover:text-primary transition-colors">
                 <Phone className="w-3.5 h-3.5 flex-shrink-0" /> (83) 99982-8597
@@ -37,7 +37,7 @@ const Footer = () => {
           </div>
 
           <div className="text-center sm:text-left">
-            <h4 className="font-display text-base xs:text-lg tracking-wide text-foreground mb-2 xs:mb-3">Horário</h4>
+            <h4 className="font-display text-base xs:text-lg tracking-wide text-foreground mb-2 xs:mb-3">Horários</h4>
             <div className="space-y-1 text-xs xs:text-sm font-body text-muted-foreground">
               <p>Segunda a Sexta: 17h - 22:30h</p>
               <p>Sábados e Domingos: 17h - 22:30h</p>
