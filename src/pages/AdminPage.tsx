@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
-import { verifyAdminPassword, createSession, isSessionValid, clearSession, isPasswordConfigured } from "@/lib/auth";
+import { verifyAdminCredentials, createSession, isSessionValid, clearSession } from "@/lib/auth";
 import { format, getDay, getDaysInMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus, Users, Repeat, Calendar as CalendarOnly } from "lucide-react";
@@ -24,6 +24,7 @@ const courtIds = Object.keys(courtNames);
 
 const AdminPage = () => {
   const [authenticated, setAuthenticated] = useState(false);
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -266,23 +267,20 @@ const AdminPage = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim()) return;
+    if (!email.trim() || !password.trim()) return;
     setAuthLoading(true);
     setAuthError("");
     try {
-      const valid = await verifyAdminPassword(password);
+      const valid = verifyAdminCredentials(email, password);
       if (valid) {
         createSession();
         setAuthenticated(true);
-        if (!isPasswordConfigured()) {
-          toast.success("Senha admin configurada com sucesso!");
-        }
       } else {
-        setAuthError("Senha incorreta");
+        setAuthError("Email ou senha incorretos");
         setPassword("");
       }
     } catch {
-      setAuthError("Erro ao verificar senha");
+      setAuthError("Erro ao verificar credenciais");
     } finally {
       setAuthLoading(false);
     }
@@ -291,6 +289,7 @@ const AdminPage = () => {
   const handleLogout = () => {
     clearSession();
     setAuthenticated(false);
+    setEmail("");
     setPassword("");
     toast.success("Sessão encerrada");
   };
@@ -462,29 +461,35 @@ const AdminPage = () => {
               </div>
               <h1 className="text-3xl font-display tracking-wide mb-2">ADMIN</h1>
               <p className="text-sm text-muted-foreground font-body mb-6">
-                {isPasswordConfigured()
-                  ? "Digite sua senha para acessar"
-                  : "Primeiro acesso: defina sua senha de admin"}
+                Digite seu email e senha para acessar
               </p>
               <form onSubmit={handleLogin} className="space-y-4">
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => { setEmail(e.target.value); setAuthError(""); }}
+                  placeholder="Email"
+                  className="h-12 font-body rounded-xl"
+                  autoFocus
+                  autoComplete="email"
+                />
                 <Input
                   type="password"
                   value={password}
                   onChange={(e) => { setPassword(e.target.value); setAuthError(""); }}
                   placeholder="Senha"
-                  className="h-12 font-body rounded-xl text-center"
-                  autoFocus
-                  minLength={4}
+                  className="h-12 font-body rounded-xl"
+                  autoComplete="current-password"
                 />
                 {authError && (
                   <p className="text-sm text-destructive font-body">{authError}</p>
                 )}
                 <Button
                   type="submit"
-                  disabled={authLoading || !password.trim()}
+                  disabled={authLoading || !email.trim() || !password.trim()}
                   className="w-full h-12 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl btn-animate hover:shadow-primary/20"
                 >
-                  {authLoading ? "Verificando..." : isPasswordConfigured() ? "Entrar" : "Definir Senha"}
+                  {authLoading ? "Verificando..." : "Entrar"}
                 </Button>
               </form>
             </div>
