@@ -7,15 +7,27 @@ import { ArrowDown, MapPin, Phone, Mail } from "lucide-react";
 const Hero = () => {
   return (
     <section className="relative h-[100dvh] min-h-[480px] flex items-center justify-center overflow-hidden">
-      <img
+      <motion.img
         src={heroMobileImg}
         alt="Alça Beach Arena"
-        className="absolute inset-0 w-full h-full object-cover object-center scale-105 md:hidden"
+        className="absolute inset-0 w-full h-full object-cover object-center md:hidden"
+        initial={{ scale: 1.05, opacity: 0 }}
+        animate={{ scale: 1.15, opacity: 1 }}
+        transition={{
+          opacity: { duration: 1.2, ease: "easeOut" },
+          scale: { duration: 18, ease: "easeInOut", repeat: Infinity, repeatType: "reverse" },
+        }}
       />
-      <img
+      <motion.img
         src={heroImg}
         alt="Alça Beach Arena"
-        className="absolute inset-0 w-full h-full object-cover object-center scale-105 hidden md:block"
+        className="absolute inset-0 w-full h-full object-cover object-center hidden md:block"
+        initial={{ scale: 1.05, opacity: 0 }}
+        animate={{ scale: 1.15, opacity: 1 }}
+        transition={{
+          opacity: { duration: 1.2, ease: "easeOut" },
+          scale: { duration: 20, ease: "easeInOut", repeat: Infinity, repeatType: "reverse" },
+        }}
       />
       <div className="hero-overlay absolute inset-0" />
 
