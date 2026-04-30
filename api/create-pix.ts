@@ -8,18 +8,21 @@ export default async function handler(req: any, res: any) {
   const mpAccessToken = process.env.MERCADO_PAGO_ACCESS_TOKEN || "";
 
   try {
-    const { bookingId, amount, description, payerEmail } = req.body;
+    const { bookingId, amount, description, payerEmail, payerName } = req.body;
 
     if (!bookingId || !amount) {
       return res.status(400).json({ error: "bookingId e amount são obrigatórios" });
     }
 
-    // Debug: verificar token
-    console.log("Token existe:", !!mpAccessToken, "Tamanho:", mpAccessToken.length, "Inicio:", mpAccessToken.substring(0, 10));
-
     if (!mpAccessToken) {
       return res.status(500).json({ error: "MERCADO_PAGO_ACCESS_TOKEN não configurado" });
     }
+
+    // Separa nome em first_name / last_name (Mercado Pago exige para PIX)
+    const fullName = (payerName || "Cliente Arena").trim();
+    const nameParts = fullName.split(/\s+/);
+    const firstName = nameParts[0] || "Cliente";
+    const lastName = nameParts.slice(1).join(" ") || "Arena";
 
     // Criar cobrança PIX no Mercado Pago
     const idempotencyKey = `pix-${bookingId}-${Date.now()}`;
@@ -37,6 +40,8 @@ export default async function handler(req: any, res: any) {
         external_reference: bookingId,
         payer: {
           email: payerEmail || "arenaalcabeach@gmail.com",
+          first_name: firstName,
+          last_name: lastName,
         },
         date_of_expiration: new Date(Date.now() + 30 * 60 * 1000).toISOString(), // 30 min
       }),
@@ -46,9 +51,12 @@ export default async function handler(req: any, res: any) {
 
     if (!mpResponse.ok) {
       console.error("Erro Mercado Pago:", mpData);
+      const causeDetail = Array.isArray(mpData?.cause) && mpData.cause[0]?.description
+        ? mpData.cause[0].description
+        : null;
       return res.status(500).json({
         error: "Erro ao criar cobrança PIX",
-        details: mpData.message || mpData,
+        details: causeDetail || mpData?.message || mpData?.error || "Erro desconhecido do Mercado Pago",
       });
     }
 

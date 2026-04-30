@@ -311,13 +311,16 @@ const BookingPage = () => {
           bookingId: booking.id,
           amount,
           description,
+          payerName: name.trim(),
         }),
       });
 
       const pixResult = await pixResponse.json();
 
       if (!pixResponse.ok) {
-        toast.error(pixResult.error || "Erro ao gerar PIX. Tente novamente.");
+        const baseMsg = pixResult.error || "Erro ao gerar PIX. Tente novamente.";
+        const fullMsg = pixResult.details ? `${baseMsg}: ${pixResult.details}` : baseMsg;
+        toast.error(fullMsg);
         setSubmitting(false);
         return;
       }
