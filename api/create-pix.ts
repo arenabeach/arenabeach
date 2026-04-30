@@ -39,7 +39,7 @@ export default async function handler(req: any, res: any) {
         payment_method_id: "pix",
         external_reference: bookingId,
         payer: {
-          email: payerEmail || "arenaalcabeach@gmail.com",
+          email: payerEmail || `cliente-${bookingId}@arenabeach.com.br`,
           first_name: firstName,
           last_name: lastName,
         },
