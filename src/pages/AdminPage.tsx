@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
@@ -21,6 +21,38 @@ const statusConfig = {
 };
 
 const courtIds = Object.keys(courtNames);
+
+// Toca um "ding-ding" agudo via Web Audio API quando um novo agendamento é confirmado
+const playNotificationSound = (() => {
+  let ctx: AudioContext | null = null;
+  return () => {
+    try {
+      if (!ctx) {
+        const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        ctx = new Ctor();
+      }
+      if (ctx.state === "suspended") ctx.resume();
+      const now = ctx.currentTime;
+      const tone = (freq: number, start: number, dur: number) => {
+        const osc = ctx!.createOscillator();
+        const gain = ctx!.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, now + start);
+        gain.gain.linearRampToValueAtTime(0.3, now + start + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+        osc.connect(gain);
+        gain.connect(ctx!.destination);
+        osc.start(now + start);
+        osc.stop(now + start + dur);
+      };
+      tone(880, 0, 0.3);
+      tone(1320, 0.18, 0.35);
+    } catch (err) {
+      console.warn("Não foi possível tocar som de notificação:", err);
+    }
+  };
+})();
 
 const AdminPage = () => {
   const [authenticated, setAuthenticated] = useState(false);
@@ -57,6 +89,7 @@ const AdminPage = () => {
   const [monthlySubmitting, setMonthlySubmitting] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<MonthlySubscriber | null>(null);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const knownConfirmedIdsRef = useRef<Set<string> | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -69,6 +102,29 @@ const AdminPage = () => {
     setLoading(true);
     try {
       const data = await getBookings();
+
+      // Detectar novos agendamentos confirmados (cliente pagou via PIX) e tocar som
+      const currentConfirmedIds = new Set(
+        data.filter((b) => b.status === "confirmado").map((b) => b.id)
+      );
+      if (knownConfirmedIdsRef.current === null) {
+        // Primeiro carregamento: apenas memoriza, não toca som
+        knownConfirmedIdsRef.current = currentConfirmedIds;
+      } else {
+        const newConfirmed = [...currentConfirmedIds].filter(
+          (id) => !knownConfirmedIdsRef.current!.has(id)
+        );
+        if (newConfirmed.length > 0) {
+          playNotificationSound();
+          toast.success(
+            newConfirmed.length === 1
+              ? "Novo agendamento confirmado via PIX!"
+              : `${newConfirmed.length} novos agendamentos confirmados via PIX!`
+          );
+        }
+        knownConfirmedIdsRef.current = currentConfirmedIds;
+      }
+
       setBookings(data);
     } catch {
       toast.error("Erro ao carregar agendamentos");
