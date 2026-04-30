@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber } from "@/lib/bookings";
+import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { verifyAdminCredentials, createSession, isSessionValid, clearSession } from "@/lib/auth";
 import { format, getDay, getDaysInMonth } from "date-fns";
@@ -143,16 +143,46 @@ const AdminPage = () => {
     }
   };
 
+  // Slots bloqueados apenas para a data específica (excluindo os permanentes)
+  const getDateOnlyBlockedSet = (courtId: string): Set<string> => {
+    const merged = blockedSlots[courtId] || new Set<string>();
+    const recurring = recurringBlockedSlots[courtId] || new Set<string>();
+    const result = new Set<string>();
+    merged.forEach((t) => {
+      if (!recurring.has(t)) result.add(t);
+    });
+    return result;
+  };
+
+  const isAllBlocked = (courtId: string): boolean => {
+    const target = blockType === "recurring"
+      ? (recurringBlockedSlots[courtId] || new Set<string>())
+      : getDateOnlyBlockedSet(courtId);
+    return timeSlots.every((t) => target.has(t));
+  };
+
   const handleToggleBlockAll = async (courtId: string) => {
-    const courtBlocked = blockedSlots[courtId];
-    const allBlocked = courtBlocked && timeSlots.every((t) => courtBlocked.has(t));
     try {
-      if (allBlocked) {
-        await unblockAllSlots(courtId, selectedDate);
-        toast.success("Todos os horários desbloqueados!");
+      if (blockType === "recurring") {
+        const courtRec = recurringBlockedSlots[courtId];
+        const allBlocked = courtRec && timeSlots.every((t) => courtRec.has(t));
+        if (allBlocked) {
+          await unblockAllSlotsRecurring(courtId);
+          toast.success("Todos os horários desbloqueados (permanente)!");
+        } else {
+          await blockAllSlotsRecurring(courtId);
+          toast.success("Todos os horários bloqueados permanentemente!");
+        }
       } else {
-        await blockAllSlots(courtId, selectedDate);
-        toast.success("Todos os horários bloqueados!");
+        const dateOnly = getDateOnlyBlockedSet(courtId);
+        const allBlocked = timeSlots.every((t) => dateOnly.has(t));
+        if (allBlocked) {
+          await unblockAllSlots(courtId, selectedDate);
+          toast.success("Todos os horários desbloqueados nesta data!");
+        } else {
+          await blockAllSlots(courtId, selectedDate);
+          toast.success("Todos os horários bloqueados nesta data!");
+        }
       }
       await refreshBlockedSlots();
     } catch {
@@ -743,14 +773,14 @@ const AdminPage = () => {
                             onClick={() => handleToggleBlockAll(cId)}
                             className={cn(
                               "text-[9px] sm:text-[10px] font-body font-medium px-2 py-1 rounded-lg transition-all",
-                              blockedSlots[cId] && timeSlots.every((t) => blockedSlots[cId]?.has(t))
+                              isAllBlocked(cId)
                                 ? "bg-red-500/20 text-red-500 hover:bg-red-500/30"
                                 : "bg-muted text-muted-foreground hover:bg-muted/80"
                             )}
                           >
-                            {blockedSlots[cId] && timeSlots.every((t) => blockedSlots[cId]?.has(t))
-                              ? "Desbloquear tudo"
-                              : "Bloquear tudo"}
+                            {isAllBlocked(cId)
+                              ? (blockType === "recurring" ? "Desbloquear tudo (perm.)" : "Desbloquear tudo")
+                              : (blockType === "recurring" ? "Bloquear tudo (perm.)" : "Bloquear tudo")}
                           </button>
                         )}
                       </div>

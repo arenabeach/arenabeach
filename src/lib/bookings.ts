@@ -399,6 +399,51 @@ export const unblockAllSlots = async (
   }
 };
 
+// Bloquear permanentemente todos os horários de uma quadra (todas as datas)
+export const blockAllSlotsRecurring = async (
+  courtId: string,
+  reason?: string
+): Promise<void> => {
+  // Limpa os bloqueios permanentes existentes desta quadra e reinsere todos
+  const { error: delError } = await supabase
+    .from("recurring_blocked_slots")
+    .delete()
+    .eq("court_id", courtId);
+
+  if (delError) {
+    console.error("Erro ao limpar bloqueios permanentes:", delError);
+    throw new Error("Erro ao bloquear todos permanentemente");
+  }
+
+  const rows = timeSlots.map((time) => ({
+    court_id: courtId,
+    time,
+    reason: reason || null,
+  }));
+
+  const { error } = await supabase.from("recurring_blocked_slots").insert(rows);
+
+  if (error) {
+    console.error("Erro ao bloquear todos permanente:", error);
+    throw new Error("Erro ao bloquear todos permanentemente");
+  }
+};
+
+// Desbloquear todos os bloqueios permanentes de uma quadra
+export const unblockAllSlotsRecurring = async (
+  courtId: string
+): Promise<void> => {
+  const { error } = await supabase
+    .from("recurring_blocked_slots")
+    .delete()
+    .eq("court_id", courtId);
+
+  if (error) {
+    console.error("Erro ao desbloquear todos permanente:", error);
+    throw new Error("Erro ao desbloquear todos permanentemente");
+  }
+};
+
 // =================== MONTHLY SUBSCRIBERS (MENSALISTAS) ===================
 
 export interface MonthlySubscriber {
