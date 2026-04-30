@@ -175,7 +175,10 @@ const BookingPage = () => {
     };
   }, []);
 
-  // Cancelar booking se sair da página com PIX não pago
+  // Cancelar booking se o usuário FECHAR a aba/janela com PIX não pago.
+  // Importante: NÃO chamar cancelOnLeave no cleanup do effect, porque o cleanup
+  // dispara a cada mudança de deps (ex.: pixStatus null -> "pending") usando o
+  // closure do render anterior e cancelaria o booking recém-criado.
   useEffect(() => {
     const cancelOnLeave = () => {
       if (pendingBookingId && pixStatus !== "approved") {
@@ -185,7 +188,6 @@ const BookingPage = () => {
     window.addEventListener("beforeunload", cancelOnLeave);
     return () => {
       window.removeEventListener("beforeunload", cancelOnLeave);
-      cancelOnLeave();
     };
   }, [pendingBookingId, pixStatus]);
 
