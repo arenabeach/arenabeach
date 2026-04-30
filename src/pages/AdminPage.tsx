@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber } from "@/lib/bookings";
+import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { verifyAdminCredentials, createSession, isSessionValid, clearSession } from "@/lib/auth";
 import { format, getDay, getDaysInMonth } from "date-fns";
@@ -55,6 +55,8 @@ const AdminPage = () => {
   const [monthlyTimes, setMonthlyTimes] = useState<string[]>([]);
   const [monthlyPrice, setMonthlyPrice] = useState("");
   const [monthlySubmitting, setMonthlySubmitting] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<MonthlySubscriber | null>(null);
+  const [cancelLoading, setCancelLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -106,6 +108,26 @@ const AdminPage = () => {
       refreshSubscribers();
     }
   }, [authenticated, refreshBlockedSlots, refreshSubscribers]);
+
+  // Auto-renovação: ao logar, garante 6 meses de bookings à frente para cada mensalista ativo
+  useEffect(() => {
+    if (!authenticated) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const created = await ensureSubscriberBookings(6);
+        if (!cancelled && created > 0) {
+          await refreshBookings();
+          toast.success(`Renovação automática: ${created} agendamento(s) gerado(s).`);
+        }
+      } catch (err) {
+        console.error("Erro na renovação automática:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated, refreshBookings]);
 
   const isSlotBlocked = (courtId: string, time: string): boolean => {
     return blockedSlots[courtId]?.has(time) || false;
@@ -257,6 +279,8 @@ const AdminPage = () => {
         created++;
       }
 
+      // Auto-popular os próximos 6 meses (renovação automática inicial)
+      const extra = await ensureSubscriberBookings(6);
       await refreshBookings();
       await refreshSubscribers();
       setShowMonthly(false);
@@ -267,7 +291,7 @@ const AdminPage = () => {
       setMonthlyWeekdays([]);
       setMonthlyTimes([]);
       setMonthlyPrice("");
-      toast.success(`Mensalista cadastrado com ${created} agendamento(s)!`);
+      toast.success(`Mensalista cadastrado com ${created + extra} agendamento(s) (renovação automática ativa).`);
     } catch {
       toast.error("Erro ao criar agendamentos mensais");
     } finally {
@@ -275,14 +299,33 @@ const AdminPage = () => {
     }
   };
 
-  const handleDeleteSubscriber = async (id: string, name: string) => {
-    if (!window.confirm(`Excluir mensalista "${name}"? Todos os agendamentos vinculados também serão excluídos.`)) return;
+  const handleCancelNow = async () => {
+    if (!cancelTarget) return;
+    setCancelLoading(true);
     try {
-      await deleteMonthlySubscriber(id);
+      await deleteMonthlySubscriber(cancelTarget.id);
       await Promise.all([refreshSubscribers(), refreshBookings()]);
-      toast.success("Mensalista e agendamentos excluídos.");
+      setCancelTarget(null);
+      toast.success("Mensalista encerrado e agendamentos removidos.");
     } catch {
-      toast.error("Erro ao excluir mensalista");
+      toast.error("Erro ao encerrar mensalista");
+    } finally {
+      setCancelLoading(false);
+    }
+  };
+
+  const handleCancelEndOfMonth = async () => {
+    if (!cancelTarget) return;
+    setCancelLoading(true);
+    try {
+      await endSubscriberAtMonthEnd(cancelTarget.id);
+      await Promise.all([refreshSubscribers(), refreshBookings()]);
+      setCancelTarget(null);
+      toast.success("Mensalista encerra no fim do mês — não vai mais renovar.");
+    } catch {
+      toast.error("Erro ao encerrar mensalista");
+    } finally {
+      setCancelLoading(false);
     }
   };
 
@@ -1211,18 +1254,29 @@ const AdminPage = () => {
                       >
                         <div className="flex items-start justify-between gap-3 mb-2">
                           <div className="min-w-0">
-                            <h3 className="font-display text-base sm:text-lg text-foreground">
-                              {sub.name}
-                            </h3>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-display text-base sm:text-lg text-foreground">
+                                {sub.name}
+                              </h3>
+                              {sub.active ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-body font-medium text-emerald-700 bg-emerald-100 dark:text-emerald-400 dark:bg-emerald-900/30">
+                                  <Repeat size={10} /> Renovando
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-body font-medium text-amber-700 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/30">
+                                  Encerra no fim do mês
+                                </span>
+                              )}
+                            </div>
                             <p className="text-xs font-body text-muted-foreground">{sub.phone}</p>
                           </div>
                           <Button
-                            onClick={() => handleDeleteSubscriber(sub.id, sub.name)}
-                            variant="ghost"
+                            onClick={() => setCancelTarget(sub)}
+                            variant="outline"
                             size="sm"
-                            className="text-muted-foreground hover:text-destructive font-body rounded-lg h-8 px-2 shrink-0"
+                            className="text-destructive border-destructive/30 hover:bg-destructive/10 font-body rounded-lg h-8 px-2.5 shrink-0 text-xs gap-1"
                           >
-                            <Trash2 size={14} />
+                            <XCircle size={12} /> Encerrar
                           </Button>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-body text-muted-foreground">
@@ -1545,6 +1599,72 @@ const AdminPage = () => {
                 </Button>
               </div>
             </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Modal de cancelamento de mensalista */}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <motion.div
+            className="w-full max-w-sm bg-card border border-border rounded-2xl p-5 sm:p-6 shadow-xl"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display text-lg sm:text-xl">Encerrar Mensalista</h3>
+              <button onClick={() => !cancelLoading && setCancelTarget(null)} className="text-muted-foreground hover:text-foreground">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-1 text-sm font-body mb-5">
+              <p className="font-medium text-foreground">{cancelTarget.name}</p>
+              <p className="text-muted-foreground text-xs">
+                {cancelTarget.courtName} • {cancelTarget.weekdays.map((d) => weekdayLabels[d]).join(", ")}
+              </p>
+            </div>
+
+            <p className="text-xs font-body text-muted-foreground mb-3">
+              Como você quer encerrar?
+            </p>
+
+            <div className="space-y-2">
+              <button
+                onClick={handleCancelEndOfMonth}
+                disabled={cancelLoading}
+                className="w-full text-left p-3 rounded-xl border border-amber-500/40 bg-amber-50 dark:bg-amber-900/10 hover:bg-amber-100 dark:hover:bg-amber-900/20 transition-all disabled:opacity-50"
+              >
+                <p className="font-body font-semibold text-sm text-amber-700 dark:text-amber-400">
+                  Encerrar no fim do mês
+                </p>
+                <p className="text-[11px] font-body text-muted-foreground mt-0.5 leading-snug">
+                  Mantém os agendamentos deste mês. Não renova mais a partir do próximo mês.
+                </p>
+              </button>
+
+              <button
+                onClick={handleCancelNow}
+                disabled={cancelLoading}
+                className="w-full text-left p-3 rounded-xl border border-destructive/40 bg-destructive/5 hover:bg-destructive/10 transition-all disabled:opacity-50"
+              >
+                <p className="font-body font-semibold text-sm text-destructive">
+                  Encerrar agora
+                </p>
+                <p className="text-[11px] font-body text-muted-foreground mt-0.5 leading-snug">
+                  Apaga o mensalista e todos os agendamentos (atuais e futuros). Os horários ficam livres.
+                </p>
+              </button>
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={() => setCancelTarget(null)}
+              disabled={cancelLoading}
+              className="w-full h-10 font-body rounded-xl text-sm mt-3"
+            >
+              {cancelLoading ? <Loader2 size={16} className="animate-spin" /> : "Cancelar"}
+            </Button>
           </motion.div>
         </div>
       )}

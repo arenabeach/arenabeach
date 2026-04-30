@@ -539,6 +539,112 @@ export const deleteMonthlySubscriber = async (id: string): Promise<void> => {
   }
 };
 
+// Encerra mensalista no fim do mês corrente: marca como inativo e remove
+// agendamentos a partir do próximo mês (mantém os do mês atual).
+export const endSubscriberAtMonthEnd = async (id: string): Promise<void> => {
+  const today = new Date();
+  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  const y = endOfMonth.getFullYear();
+  const m = String(endOfMonth.getMonth() + 1).padStart(2, "0");
+  const d = String(endOfMonth.getDate()).padStart(2, "0");
+  const endOfMonthStr = `${y}-${m}-${d}`;
+
+  const { error: subErr } = await supabase
+    .from("monthly_subscribers")
+    .update({ active: false })
+    .eq("id", id);
+
+  if (subErr) {
+    console.error("Erro ao desativar mensalista:", subErr);
+    throw new Error("Erro ao desativar mensalista");
+  }
+
+  const { error: bkErr } = await supabase
+    .from("bookings")
+    .delete()
+    .eq("monthly_subscriber_id", id)
+    .gt("date", endOfMonthStr);
+
+  if (bkErr) {
+    console.error("Erro ao remover agendamentos futuros:", bkErr);
+    throw new Error("Erro ao remover agendamentos futuros");
+  }
+};
+
+// Garante que cada mensalista ativo tenha bookings gerados até `monthsAhead`
+// meses à frente. Usado para auto-renovação ao abrir o painel admin.
+// Retorna o total de bookings criados.
+export const ensureSubscriberBookings = async (
+  monthsAhead: number = 6
+): Promise<number> => {
+  const subs = await getMonthlySubscribers();
+  const active = subs.filter((s) => s.active);
+  if (active.length === 0) return 0;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const targetEnd = new Date(today);
+  targetEnd.setMonth(targetEnd.getMonth() + monthsAhead);
+
+  const fmt = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
+  let totalCreated = 0;
+
+  for (const sub of active) {
+    const { data: existing } = await supabase
+      .from("bookings")
+      .select("date")
+      .eq("monthly_subscriber_id", sub.id);
+
+    const existingDates = new Set((existing || []).map((r) => r.date as string));
+
+    const [yearStr, monthStr] = sub.month.split("-");
+    const startOfStartMonth = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 1);
+    const cursor = new Date(Math.max(today.getTime(), startOfStartMonth.getTime()));
+    cursor.setHours(0, 0, 0, 0);
+
+    const timeDisplay = sub.times.join(", ");
+    const rows: Record<string, unknown>[] = [];
+
+    while (cursor.getTime() <= targetEnd.getTime()) {
+      const weekday = cursor.getDay();
+      if (sub.weekdays.includes(weekday)) {
+        const dateStr = fmt(cursor);
+        if (!existingDates.has(dateStr)) {
+          rows.push({
+            court_id: sub.courtId,
+            court_name: sub.courtName,
+            sport: sub.sport || null,
+            date: dateStr,
+            time: timeDisplay,
+            name: sub.name,
+            phone: sub.phone,
+            status: "confirmado",
+            monthly_subscriber_id: sub.id,
+          });
+        }
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    if (rows.length > 0) {
+      const { error } = await supabase.from("bookings").insert(rows);
+      if (error) {
+        console.error(`Erro ao renovar mensalista ${sub.id}:`, error);
+      } else {
+        totalCreated += rows.length;
+      }
+    }
+  }
+
+  return totalCreated;
+};
+
 // Cria booking vinculado a um mensalista (pula a flag de status pendente)
 export const addBookingForSubscriber = async (
   booking: Omit<Booking, "id" | "createdAt" | "status">,
