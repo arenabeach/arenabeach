@@ -1224,26 +1224,31 @@ const AdminPage = () => {
                                   <span className="mx-2">•</span>
                                   <span>{booking.phone}</span>
                                 </div>
+                                {booking.status === "pendente" && isSubscriber && (
+                                  <p className="text-[10px] sm:text-xs font-body text-muted-foreground italic pt-0.5">
+                                    Confirme o mês inteiro na aba <span className="font-medium text-foreground/80">Mensalistas</span>
+                                  </p>
+                                )}
                                 {(booking.status === "pendente" || booking.status === "cancelado") && (
                                   <div className="flex gap-2 flex-wrap pt-1">
+                                    {booking.status === "pendente" && !isSubscriber && (
+                                      <Button
+                                        onClick={() => handleStatus(booking.id, "confirmado")}
+                                        className="bg-emerald-600 text-white hover:bg-emerald-700 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
+                                        size="sm"
+                                      >
+                                        <CheckCircle size={12} className="mr-1" /> Confirmar
+                                      </Button>
+                                    )}
                                     {booking.status === "pendente" && (
-                                      <>
-                                        <Button
-                                          onClick={() => handleStatus(booking.id, "confirmado")}
-                                          className="bg-emerald-600 text-white hover:bg-emerald-700 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
-                                          size="sm"
-                                        >
-                                          <CheckCircle size={12} className="mr-1" /> Confirmar
-                                        </Button>
-                                        <Button
-                                          onClick={() => handleStatus(booking.id, "cancelado")}
-                                          variant="outline"
-                                          size="sm"
-                                          className="text-destructive border-destructive/30 hover:bg-destructive/10 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
-                                        >
-                                          <XCircle size={12} className="mr-1" /> Cancelar
-                                        </Button>
-                                      </>
+                                      <Button
+                                        onClick={() => handleStatus(booking.id, "cancelado")}
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-destructive border-destructive/30 hover:bg-destructive/10 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
+                                      >
+                                        <XCircle size={12} className="mr-1" /> {isSubscriber ? "Cancelar este dia" : "Cancelar"}
+                                      </Button>
                                     )}
                                     {booking.status === "cancelado" && (
                                       <Button
