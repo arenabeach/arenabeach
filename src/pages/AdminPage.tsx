@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { loginAdmin, isSessionValid, clearSession } from "@/lib/auth";
-import { format, getDay, getDaysInMonth } from "date-fns";
+import { format, getDay, getDaysInMonth, addDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus, Users, Repeat, Calendar as CalendarOnly } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -64,6 +64,7 @@ const AdminPage = () => {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<"todos" | Booking["status"]>("todos");
   const [searchTerm, setSearchTerm] = useState("");
+  const [showSubscribersInList, setShowSubscribersInList] = useState(false);
   const [tab, setTab] = useState<"quadras" | "lista" | "caixa" | "mensalistas">("quadras");
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [manualBooking, setManualBooking] = useState<{ courtId: string; courtName: string; time: string } | null>(null);
@@ -503,8 +504,43 @@ const AdminPage = () => {
     }
   };
 
+  const formatBookingTime = (time: string): string => {
+    const slots = time.split(",").map((s) => s.trim()).filter(Boolean);
+    if (slots.length === 0) return time;
+    if (slots.length === 1) return formatSlotRange(slots[0]);
+    const sorted = [...slots].sort();
+    const toMin = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    const mins = sorted.map(toMin);
+    const consecutive = mins.every((m, i) => i === 0 || m === mins[i - 1] + 30);
+    if (consecutive) {
+      const endMin = mins[mins.length - 1] + 30;
+      const eh = String(Math.floor(endMin / 60) % 24).padStart(2, "0");
+      const em = String(endMin % 60).padStart(2, "0");
+      return `${sorted[0]} às ${eh}:${em}`;
+    }
+    return sorted.map(formatSlotRange).join(", ");
+  };
+
+  const formatDateHeader = (dateStr: string): string => {
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    const tomorrowStr = format(addDays(new Date(), 1), "yyyy-MM-dd");
+    const yesterdayStr = format(addDays(new Date(), -1), "yyyy-MM-dd");
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    const formatted = format(dt, "dd/MM/yyyy");
+    const weekday = format(dt, "EEEE", { locale: ptBR });
+    if (dateStr === todayStr) return `Hoje • ${formatted}`;
+    if (dateStr === tomorrowStr) return `Amanhã • ${formatted}`;
+    if (dateStr === yesterdayStr) return `Ontem • ${formatted}`;
+    return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} • ${formatted}`;
+  };
+
   const filtered = bookings
     .filter((b) => filter === "todos" || b.status === filter)
+    .filter((b) => showSubscribersInList || !b.monthlySubscriberId)
     .filter((b) => {
       if (!searchTerm) return true;
       const term = searchTerm.toLowerCase();
@@ -515,6 +551,33 @@ const AdminPage = () => {
         b.date.includes(term)
       );
     });
+
+  const groupedByDate = (() => {
+    const today = format(new Date(), "yyyy-MM-dd");
+    const groups = new Map<string, Booking[]>();
+    filtered.forEach((b) => {
+      if (!groups.has(b.date)) groups.set(b.date, []);
+      groups.get(b.date)!.push(b);
+    });
+    const dates = Array.from(groups.keys()).sort((a, b) => {
+      if (a === today) return -1;
+      if (b === today) return 1;
+      const aFuture = a >= today;
+      const bFuture = b >= today;
+      if (aFuture && !bFuture) return -1;
+      if (!aFuture && bFuture) return 1;
+      if (aFuture && bFuture) return a.localeCompare(b);
+      return b.localeCompare(a);
+    });
+    return dates.map((date) => ({
+      date,
+      bookings: groups.get(date)!.sort((a, b) => {
+        const aT = a.time.split(",")[0].trim();
+        const bT = b.time.split(",")[0].trim();
+        return aT.localeCompare(bT);
+      }),
+    }));
+  })();
 
   const stats = {
     total: bookings.length,
@@ -1078,6 +1141,18 @@ const AdminPage = () => {
                     </button>
                   ))}
                 </div>
+                <button
+                  onClick={() => setShowSubscribersInList((v) => !v)}
+                  className={cn(
+                    "self-start inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-body font-medium transition-all",
+                    showSubscribersInList
+                      ? "bg-primary/10 text-primary border border-primary/30"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80 border border-transparent"
+                  )}
+                >
+                  <Repeat size={12} />
+                  {showSubscribersInList ? "Mostrando mensalistas" : "Mensalistas escondidos"}
+                </button>
               </div>
 
               {filtered.length === 0 ? (
@@ -1088,77 +1163,107 @@ const AdminPage = () => {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-2 sm:space-y-3">
-                  {filtered
-                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                    .map((booking, i) => {
-                      const cfg = statusConfig[booking.status];
-                      const StatusIcon = cfg.icon;
-                      return (
-                        <motion.div
-                          key={booking.id}
-                          className="glass-card rounded-xl p-3 sm:p-5"
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: i * 0.03 }}
-                        >
-                          <div className="flex flex-col gap-3">
-                            <div className="space-y-1 sm:space-y-1.5 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="font-display text-base sm:text-lg">{booking.courtName}</h3>
-                                <span className={cn(
-                                  "inline-flex items-center gap-1 px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-body font-medium",
-                                  cfg.color
-                                )}>
-                                  <StatusIcon size={10} />
-                                  {cfg.label}
-                                </span>
+                <div className="space-y-5">
+                  {groupedByDate.map(({ date, bookings: dayBookings }) => (
+                    <div key={date}>
+                      <div className="flex items-center justify-between mb-2 sm:mb-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 z-10">
+                        <h2 className="font-display text-sm sm:text-base tracking-wide text-foreground capitalize">
+                          {formatDateHeader(date)}
+                        </h2>
+                        <span className="text-[10px] sm:text-xs font-body text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                          {dayBookings.length}{" "}
+                          {dayBookings.length === 1 ? "agendamento" : "agendamentos"}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {dayBookings.map((booking, i) => {
+                          const cfg = statusConfig[booking.status];
+                          const StatusIcon = cfg.icon;
+                          const isSubscriber = !!booking.monthlySubscriberId;
+                          return (
+                            <motion.div
+                              key={booking.id}
+                              className="glass-card rounded-xl p-3 sm:p-4"
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: Math.min(i * 0.02, 0.3) }}
+                            >
+                              <div className="flex flex-col gap-2.5">
+                                <div className="flex items-start justify-between gap-2 flex-wrap">
+                                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                    <span className="font-body font-semibold text-sm sm:text-base text-primary tabular-nums">
+                                      {formatBookingTime(booking.time)}
+                                    </span>
+                                    <span className="text-foreground/60">•</span>
+                                    <span className="font-body text-sm sm:text-base text-foreground">
+                                      {booking.courtName}
+                                    </span>
+                                    {booking.sport && (
+                                      <span className="text-[10px] sm:text-xs font-body text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                        {booking.sport}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {isSubscriber && (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-body font-medium text-purple-700 bg-purple-100 dark:text-purple-300 dark:bg-purple-900/30">
+                                        <Repeat size={10} /> Mensalista
+                                      </span>
+                                    )}
+                                    <span className={cn(
+                                      "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-body font-medium",
+                                      cfg.color
+                                    )}>
+                                      <StatusIcon size={10} />
+                                      {cfg.label}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="text-xs sm:text-sm font-body text-muted-foreground">
+                                  <span className="text-foreground/80 font-medium">{booking.name}</span>
+                                  <span className="mx-2">•</span>
+                                  <span>{booking.phone}</span>
+                                </div>
+                                {(booking.status === "pendente" || booking.status === "cancelado") && (
+                                  <div className="flex gap-2 flex-wrap pt-1">
+                                    {booking.status === "pendente" && (
+                                      <>
+                                        <Button
+                                          onClick={() => handleStatus(booking.id, "confirmado")}
+                                          className="bg-emerald-600 text-white hover:bg-emerald-700 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
+                                          size="sm"
+                                        >
+                                          <CheckCircle size={12} className="mr-1" /> Confirmar
+                                        </Button>
+                                        <Button
+                                          onClick={() => handleStatus(booking.id, "cancelado")}
+                                          variant="outline"
+                                          size="sm"
+                                          className="text-destructive border-destructive/30 hover:bg-destructive/10 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
+                                        >
+                                          <XCircle size={12} className="mr-1" /> Cancelar
+                                        </Button>
+                                      </>
+                                    )}
+                                    {booking.status === "cancelado" && (
+                                      <Button
+                                        onClick={() => handleDelete(booking.id)}
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-muted-foreground hover:text-destructive font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
+                                      >
+                                        <Trash2 size={12} className="mr-1" /> Excluir
+                                      </Button>
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                              <div className="text-xs sm:text-sm font-body text-muted-foreground space-y-0.5">
-                                {booking.sport && <p>Esporte: {booking.sport}</p>}
-                                <p>{booking.date} às {booking.time}</p>
-                                <p>{booking.name} - {booking.phone}</p>
-                                <p className="text-[10px] sm:text-xs text-muted-foreground/50">
-                                  Criado em {format(new Date(booking.createdAt), "dd/MM/yyyy HH:mm")}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="flex gap-2 shrink-0 flex-wrap">
-                              {booking.status === "pendente" && (
-                                <>
-                                  <Button
-                                    onClick={() => handleStatus(booking.id, "confirmado")}
-                                    className="bg-emerald-600 text-white hover:bg-emerald-700 font-body rounded-xl text-[10px] sm:text-sm h-8 sm:h-9 btn-animate hover:shadow-emerald-500/20"
-                                    size="sm"
-                                  >
-                                    <CheckCircle size={12} className="mr-1" /> Confirmar
-                                  </Button>
-                                  <Button
-                                    onClick={() => handleStatus(booking.id, "cancelado")}
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-destructive border-destructive/30 hover:bg-destructive/10 font-body rounded-xl text-[10px] sm:text-sm h-8 sm:h-9 btn-animate"
-                                  >
-                                    <XCircle size={12} className="mr-1" /> Cancelar
-                                  </Button>
-                                </>
-                              )}
-                              {booking.status === "cancelado" && (
-                                <Button
-                                  onClick={() => handleDelete(booking.id)}
-                                  variant="ghost"
-                                  size="sm"
-                                  className="text-muted-foreground hover:text-destructive font-body rounded-xl text-[10px] sm:text-sm h-8 sm:h-9"
-                                >
-                                  <Trash2 size={12} className="mr-1" /> Excluir
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
