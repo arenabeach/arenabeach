@@ -424,6 +424,23 @@ const AdminPage = () => {
     toast.success("Sessão encerrada");
   };
 
+  const handleConfirmSubscriberMonth = async (subId: string, monthYM: string) => {
+    const targets = bookings.filter(
+      (b) =>
+        b.monthlySubscriberId === subId &&
+        b.status === "pendente" &&
+        b.date.slice(0, 7) === monthYM
+    );
+    if (targets.length === 0) return;
+    try {
+      await Promise.all(targets.map((b) => updateBookingStatus(b.id, "confirmado")));
+      await refreshBookings();
+      toast.success(`${targets.length} agendamento(s) do mês confirmado(s)!`);
+    } catch {
+      toast.error("Erro ao confirmar pagamento do mês");
+    }
+  };
+
   const handleStatus = async (id: string, status: Booking["status"]) => {
     try {
       await updateBookingStatus(id, status);
@@ -1300,16 +1317,26 @@ const AdminPage = () => {
               ) : (
                 <div className="space-y-3">
                   {subscribers.map((sub) => {
-                    const linkedCount = bookings.filter(
+                    const subBookings = bookings.filter(
                       (b) => b.monthlySubscriberId === sub.id && b.status !== "cancelado"
-                    ).length;
-                    const startMonthCount = bookings.filter(
-                      (b) =>
-                        b.monthlySubscriberId === sub.id &&
-                        b.status !== "cancelado" &&
-                        b.date.slice(0, 7) === sub.month
+                    );
+                    const linkedCount = subBookings.length;
+                    const startMonthCount = subBookings.filter(
+                      (b) => b.date.slice(0, 7) === sub.month
                     ).length;
                     const perSession = startMonthCount > 0 ? sub.price / startMonthCount : 0;
+
+                    const monthCounts = new Map<string, { confirmed: number; pending: number }>();
+                    subBookings.forEach((b) => {
+                      const ym = b.date.slice(0, 7);
+                      if (!monthCounts.has(ym)) monthCounts.set(ym, { confirmed: 0, pending: 0 });
+                      const entry = monthCounts.get(ym)!;
+                      if (b.status === "confirmado") entry.confirmed++;
+                      else if (b.status === "pendente") entry.pending++;
+                    });
+                    const monthsList = Array.from(monthCounts.entries()).sort(
+                      ([a], [b]) => a.localeCompare(b)
+                    );
                     return (
                       <motion.div
                         key={sub.id}
@@ -1378,6 +1405,56 @@ const AdminPage = () => {
                             )}
                           </div>
                         </div>
+
+                        {monthsList.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-border/40">
+                            <p className="text-xs font-body font-semibold text-foreground/80 mb-2">
+                              Pagamentos por mês — {sub.courtName}
+                            </p>
+                            <div className="space-y-1.5">
+                              {monthsList.map(([ym, counts]) => {
+                                const [yStr, mStr] = ym.split("-");
+                                const monthLabel = format(
+                                  new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1),
+                                  "MMMM 'de' yyyy",
+                                  { locale: ptBR }
+                                );
+                                const total = counts.confirmed + counts.pending;
+                                const allPaid = counts.pending === 0 && counts.confirmed > 0;
+                                return (
+                                  <div
+                                    key={ym}
+                                    className="flex items-center justify-between gap-2 text-xs font-body p-2 rounded-lg bg-muted/40"
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <span className="font-medium text-foreground capitalize">
+                                        {monthLabel}
+                                      </span>
+                                      <span className="text-muted-foreground ml-2">
+                                        {counts.confirmed}/{total}{" "}
+                                        {allPaid ? "confirmado" : "pendente"}
+                                        {total !== 1 ? "s" : ""}
+                                      </span>
+                                    </div>
+                                    {allPaid ? (
+                                      <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-md text-[10px] bg-emerald-100 dark:bg-emerald-900/30">
+                                        <CheckCircle size={12} /> Pago
+                                      </span>
+                                    ) : counts.pending > 0 ? (
+                                      <Button
+                                        onClick={() => handleConfirmSubscriberMonth(sub.id, ym)}
+                                        size="sm"
+                                        className="h-7 px-2.5 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-md"
+                                      >
+                                        Confirmar pagamento ({counts.pending})
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </motion.div>
                     );
                   })}
