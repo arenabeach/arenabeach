@@ -341,17 +341,34 @@ const BookingPage = () => {
 
   const handleSendWhatsApp = () => {
     if (!date || !selectedCourt) return;
-    const timeDisplay = selectedTimes.join(", ");
+
+    const sorted = [...selectedTimes].sort();
+    const toMinutes = (t: string) => {
+      const [h, m] = t.split(":").map(Number);
+      return h * 60 + m;
+    };
+    const toTime = (mins: number) => {
+      const h = Math.floor(mins / 60) % 24;
+      const m = mins % 60;
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    };
+    const minutesArr = sorted.map(toMinutes);
+    const allConsecutive = minutesArr.every((m, i) => i === 0 || m === minutesArr[i - 1] + 30);
+    const timeRange = allConsecutive
+      ? `${sorted[0]} às ${toTime(minutesArr[minutesArr.length - 1] + 30)}`
+      : sorted.map(formatSlotRange).join(", ");
+
     const durationLabel = isSociety
-      ? (selectedDuration ? `\nDuração: ${selectedDuration.label}` : "")
-      : ` (${formatDuration(selectedTimes.length)})`;
+      ? selectedDuration?.label || ""
+      : formatDuration(selectedTimes.length);
     const sportInfo = !isSociety && selectedSport ? `\nEsporte: ${selectedSport}` : "";
+    const dateLabel = format(date, "dd/MM/yyyy (EEEE)", { locale: ptBR });
 
     const message = encodeURIComponent(
       `Olá! Fiz um agendamento na Alça Beach Arena:\n\n` +
-      `Quadra: ${courtName}${sportInfo}\n` +
-      `Data: ${format(date, "dd/MM/yyyy")}\n` +
-      `Horário: ${timeDisplay}${durationLabel}\n` +
+      `Local: ${courtName}${sportInfo}\n` +
+      `Data: ${dateLabel}\n` +
+      `Horário: ${timeRange}${durationLabel ? ` (${durationLabel})` : ""}\n` +
       `Nome: ${name}\n` +
       `Telefone: ${phone}\n` +
       `Valor: ${totalPrice}\n\n` +

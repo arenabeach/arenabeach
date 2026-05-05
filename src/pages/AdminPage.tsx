@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
-import { verifyAdminCredentials, createSession, isSessionValid, clearSession } from "@/lib/auth";
+import { loginAdmin, isSessionValid, clearSession } from "@/lib/auth";
 import { format, getDay, getDaysInMonth } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus, Users, Repeat, Calendar as CalendarOnly } from "lucide-react";
@@ -404,16 +404,13 @@ const AdminPage = () => {
     setAuthLoading(true);
     setAuthError("");
     try {
-      const valid = verifyAdminCredentials(email, password);
-      if (valid) {
-        createSession();
+      const result = await loginAdmin(email, password);
+      if (result.ok === true) {
         setAuthenticated(true);
       } else {
-        setAuthError("Email ou senha incorretos");
+        setAuthError(result.error);
         setPassword("");
       }
-    } catch {
-      setAuthError("Erro ao verificar credenciais");
     } finally {
       setAuthLoading(false);
     }

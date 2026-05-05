@@ -624,7 +624,7 @@ export const ensureSubscriberBookings = async (
             time: timeDisplay,
             name: sub.name,
             phone: sub.phone,
-            status: "confirmado",
+            status: "pendente",
             monthly_subscriber_id: sub.id,
           });
         }
