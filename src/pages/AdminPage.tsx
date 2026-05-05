@@ -64,7 +64,6 @@ const AdminPage = () => {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<"todos" | Booking["status"]>("todos");
   const [searchTerm, setSearchTerm] = useState("");
-  const [showSubscribersInList, setShowSubscribersInList] = useState(false);
   const [tab, setTab] = useState<"quadras" | "lista" | "caixa" | "mensalistas">("quadras");
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [manualBooking, setManualBooking] = useState<{ courtId: string; courtName: string; time: string } | null>(null);
@@ -538,21 +537,25 @@ const AdminPage = () => {
     return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} • ${formatted}`;
   };
 
-  const filtered = bookings
-    .filter((b) => filter === "todos" || b.status === filter)
-    .filter((b) => showSubscribersInList || !b.monthlySubscriberId)
-    .filter((b) => {
-      if (!searchTerm) return true;
-      const term = searchTerm.toLowerCase();
-      return (
-        b.name.toLowerCase().includes(term) ||
-        b.phone.includes(term) ||
-        b.courtName.toLowerCase().includes(term) ||
-        b.date.includes(term)
-      );
-    });
+  const matchesSearch = (b: Booking, sub?: MonthlySubscriber): boolean => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    const name = sub?.name || b.name;
+    const phone = sub?.phone || b.phone;
+    return (
+      name.toLowerCase().includes(term) ||
+      phone.includes(term) ||
+      b.courtName.toLowerCase().includes(term) ||
+      b.date.includes(term)
+    );
+  };
 
-  const groupedByDate = (() => {
+  // Avulsos (sem mensalista) agrupados por data
+  const avulsoGrouped = (() => {
+    const filtered = bookings
+      .filter((b) => !b.monthlySubscriberId)
+      .filter((b) => filter === "todos" || b.status === filter)
+      .filter((b) => matchesSearch(b));
     const today = format(new Date(), "yyyy-MM-dd");
     const groups = new Map<string, Booking[]>();
     filtered.forEach((b) => {
@@ -577,6 +580,40 @@ const AdminPage = () => {
         return aT.localeCompare(bT);
       }),
     }));
+  })();
+
+  // Mensalistas agrupados por (mensalista + mês)
+  type SubMonthGroup = {
+    key: string;
+    sub: MonthlySubscriber;
+    monthYM: string;
+    confirmed: number;
+    pending: number;
+    cancelled: number;
+  };
+  const subscriberMonths: SubMonthGroup[] = (() => {
+    const map = new Map<string, SubMonthGroup>();
+    bookings
+      .filter((b) => b.monthlySubscriberId)
+      .filter((b) => filter === "todos" || b.status === filter)
+      .forEach((b) => {
+        const sub = subscribers.find((s) => s.id === b.monthlySubscriberId);
+        if (!sub) return;
+        if (!matchesSearch(b, sub)) return;
+        const monthYM = b.date.slice(0, 7);
+        const key = `${sub.id}|${monthYM}`;
+        if (!map.has(key)) {
+          map.set(key, { key, sub, monthYM, confirmed: 0, pending: 0, cancelled: 0 });
+        }
+        const g = map.get(key)!;
+        if (b.status === "confirmado") g.confirmed++;
+        else if (b.status === "pendente") g.pending++;
+        else g.cancelled++;
+      });
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.monthYM !== b.monthYM) return a.monthYM.localeCompare(b.monthYM);
+      return a.sub.name.localeCompare(b.sub.name);
+    });
   })();
 
   const stats = {
@@ -1141,21 +1178,9 @@ const AdminPage = () => {
                     </button>
                   ))}
                 </div>
-                <button
-                  onClick={() => setShowSubscribersInList((v) => !v)}
-                  className={cn(
-                    "self-start inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-body font-medium transition-all",
-                    showSubscribersInList
-                      ? "bg-primary/10 text-primary border border-primary/30"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80 border border-transparent"
-                  )}
-                >
-                  <Repeat size={12} />
-                  {showSubscribersInList ? "Mostrando mensalistas" : "Mensalistas escondidos"}
-                </button>
               </div>
 
-              {filtered.length === 0 ? (
+              {subscriberMonths.length === 0 && avulsoGrouped.length === 0 ? (
                 <div className="text-center py-12 sm:py-20 text-muted-foreground font-body">
                   <p className="text-base sm:text-lg">Nenhum agendamento encontrado</p>
                   <p className="text-xs sm:text-sm mt-1">
@@ -1163,112 +1188,189 @@ const AdminPage = () => {
                   </p>
                 </div>
               ) : (
-                <div className="space-y-5">
-                  {groupedByDate.map(({ date, bookings: dayBookings }) => (
-                    <div key={date}>
-                      <div className="flex items-center justify-between mb-2 sm:mb-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 z-10">
-                        <h2 className="font-display text-sm sm:text-base tracking-wide text-foreground capitalize">
-                          {formatDateHeader(date)}
-                        </h2>
-                        <span className="text-[10px] sm:text-xs font-body text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                          {dayBookings.length}{" "}
-                          {dayBookings.length === 1 ? "agendamento" : "agendamentos"}
-                        </span>
-                      </div>
+                <div className="space-y-6">
+                  {subscriberMonths.length > 0 && (
+                    <div>
+                      <h2 className="flex items-center gap-2 font-display text-sm sm:text-base tracking-wide text-foreground mb-2 sm:mb-3">
+                        <Repeat size={14} className="text-purple-600 dark:text-purple-400" />
+                        Mensalistas — pagamentos por mês
+                      </h2>
                       <div className="space-y-2">
-                        {dayBookings.map((booking, i) => {
-                          const cfg = statusConfig[booking.status];
-                          const StatusIcon = cfg.icon;
-                          const isSubscriber = !!booking.monthlySubscriberId;
+                        {subscriberMonths.map((g) => {
+                          const [yStr, mStr] = g.monthYM.split("-");
+                          const monthLabel = format(
+                            new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1),
+                            "MMMM 'de' yyyy",
+                            { locale: ptBR }
+                          );
+                          const total = g.confirmed + g.pending;
+                          const allPaid = g.pending === 0 && g.confirmed > 0;
                           return (
                             <motion.div
-                              key={booking.id}
+                              key={g.key}
                               className="glass-card rounded-xl p-3 sm:p-4"
                               initial={{ opacity: 0, y: 10 }}
                               animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: Math.min(i * 0.02, 0.3) }}
                             >
                               <div className="flex flex-col gap-2.5">
                                 <div className="flex items-start justify-between gap-2 flex-wrap">
-                                  <div className="flex items-center gap-2 flex-wrap min-w-0">
-                                    <span className="font-body font-semibold text-sm sm:text-base text-primary tabular-nums">
-                                      {formatBookingTime(booking.time)}
-                                    </span>
-                                    <span className="text-foreground/60">•</span>
-                                    <span className="font-body text-sm sm:text-base text-foreground">
-                                      {booking.courtName}
-                                    </span>
-                                    {booking.sport && (
-                                      <span className="text-[10px] sm:text-xs font-body text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                                        {booking.sport}
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-body font-semibold text-sm sm:text-base text-foreground capitalize">
+                                        {monthLabel}
                                       </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {isSubscriber && (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-body font-medium text-purple-700 bg-purple-100 dark:text-purple-300 dark:bg-purple-900/30">
-                                        <Repeat size={10} /> Mensalista
+                                      <span className="text-foreground/50">•</span>
+                                      <span className="text-xs sm:text-sm font-body text-muted-foreground">
+                                        {g.sub.courtName}
+                                        {g.sub.sport && ` · ${g.sub.sport}`}
                                       </span>
-                                    )}
-                                    <span className={cn(
-                                      "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-body font-medium",
-                                      cfg.color
-                                    )}>
-                                      <StatusIcon size={10} />
-                                      {cfg.label}
+                                    </div>
+                                    <div className="text-xs sm:text-sm font-body text-muted-foreground mt-1">
+                                      <span className="text-foreground/80 font-medium">{g.sub.name}</span>
+                                      <span className="mx-2">•</span>
+                                      <span>{g.sub.phone}</span>
+                                    </div>
+                                  </div>
+                                  {allPaid ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-body font-medium text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-900/30">
+                                      <CheckCircle size={11} /> Pago
                                     </span>
-                                  </div>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-body font-medium text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30">
+                                      <Clock size={11} /> {g.pending} pendente{g.pending === 1 ? "" : "s"}
+                                    </span>
+                                  )}
                                 </div>
-                                <div className="text-xs sm:text-sm font-body text-muted-foreground">
-                                  <span className="text-foreground/80 font-medium">{booking.name}</span>
-                                  <span className="mx-2">•</span>
-                                  <span>{booking.phone}</span>
-                                </div>
-                                {booking.status === "pendente" && isSubscriber && (
-                                  <p className="text-[10px] sm:text-xs font-body text-muted-foreground italic pt-0.5">
-                                    Confirme o mês inteiro na aba <span className="font-medium text-foreground/80">Mensalistas</span>
-                                  </p>
-                                )}
-                                {(booking.status === "pendente" || booking.status === "cancelado") && (
-                                  <div className="flex gap-2 flex-wrap pt-1">
-                                    {booking.status === "pendente" && !isSubscriber && (
-                                      <Button
-                                        onClick={() => handleStatus(booking.id, "confirmado")}
-                                        className="bg-emerald-600 text-white hover:bg-emerald-700 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
-                                        size="sm"
-                                      >
-                                        <CheckCircle size={12} className="mr-1" /> Confirmar
-                                      </Button>
-                                    )}
-                                    {booking.status === "pendente" && (
-                                      <Button
-                                        onClick={() => handleStatus(booking.id, "cancelado")}
-                                        variant="outline"
-                                        size="sm"
-                                        className="text-destructive border-destructive/30 hover:bg-destructive/10 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
-                                      >
-                                        <XCircle size={12} className="mr-1" /> {isSubscriber ? "Cancelar este dia" : "Cancelar"}
-                                      </Button>
-                                    )}
-                                    {booking.status === "cancelado" && (
-                                      <Button
-                                        onClick={() => handleDelete(booking.id)}
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-muted-foreground hover:text-destructive font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
-                                      >
-                                        <Trash2 size={12} className="mr-1" /> Excluir
-                                      </Button>
-                                    )}
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <div className="text-xs sm:text-sm font-body text-muted-foreground">
+                                    <span>Valor mensal: </span>
+                                    <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                                      R$ {g.sub.price.toFixed(2).replace(".", ",")}
+                                    </span>
+                                    <span className="mx-2">•</span>
+                                    <span>{g.confirmed}/{total} sessões pagas</span>
                                   </div>
-                                )}
+                                  {g.pending > 0 && (
+                                    <Button
+                                      onClick={() => handleConfirmSubscriberMonth(g.sub.id, g.monthYM)}
+                                      size="sm"
+                                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
+                                    >
+                                      <CheckCircle size={12} className="mr-1" />
+                                      Confirmar pagamento
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
                             </motion.div>
                           );
                         })}
                       </div>
                     </div>
-                  ))}
+                  )}
+
+                  {avulsoGrouped.length > 0 && (
+                    <div>
+                      <h2 className="flex items-center gap-2 font-display text-sm sm:text-base tracking-wide text-foreground mb-2 sm:mb-3">
+                        <CalendarOnly size={14} className="text-primary" />
+                        Agendamentos avulsos
+                      </h2>
+                      <div className="space-y-5">
+                        {avulsoGrouped.map(({ date, bookings: dayBookings }) => (
+                          <div key={date}>
+                            <div className="flex items-center justify-between mb-2 sm:mb-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 z-10">
+                              <h3 className="font-display text-xs sm:text-sm tracking-wide text-foreground/80 capitalize">
+                                {formatDateHeader(date)}
+                              </h3>
+                              <span className="text-[10px] sm:text-xs font-body text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                {dayBookings.length}{" "}
+                                {dayBookings.length === 1 ? "agendamento" : "agendamentos"}
+                              </span>
+                            </div>
+                            <div className="space-y-2">
+                              {dayBookings.map((booking, i) => {
+                                const cfg = statusConfig[booking.status];
+                                const StatusIcon = cfg.icon;
+                                return (
+                                  <motion.div
+                                    key={booking.id}
+                                    className="glass-card rounded-xl p-3 sm:p-4"
+                                    initial={{ opacity: 0, y: 10 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: Math.min(i * 0.02, 0.3) }}
+                                  >
+                                    <div className="flex flex-col gap-2.5">
+                                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                          <span className="font-body font-semibold text-sm sm:text-base text-primary tabular-nums">
+                                            {formatBookingTime(booking.time)}
+                                          </span>
+                                          <span className="text-foreground/60">•</span>
+                                          <span className="font-body text-sm sm:text-base text-foreground">
+                                            {booking.courtName}
+                                          </span>
+                                          {booking.sport && (
+                                            <span className="text-[10px] sm:text-xs font-body text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                                              {booking.sport}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <span className={cn(
+                                          "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-body font-medium",
+                                          cfg.color
+                                        )}>
+                                          <StatusIcon size={10} />
+                                          {cfg.label}
+                                        </span>
+                                      </div>
+                                      <div className="text-xs sm:text-sm font-body text-muted-foreground">
+                                        <span className="text-foreground/80 font-medium">{booking.name}</span>
+                                        <span className="mx-2">•</span>
+                                        <span>{booking.phone}</span>
+                                      </div>
+                                      {(booking.status === "pendente" || booking.status === "cancelado") && (
+                                        <div className="flex gap-2 flex-wrap pt-1">
+                                          {booking.status === "pendente" && (
+                                            <>
+                                              <Button
+                                                onClick={() => handleStatus(booking.id, "confirmado")}
+                                                className="bg-emerald-600 text-white hover:bg-emerald-700 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
+                                                size="sm"
+                                              >
+                                                <CheckCircle size={12} className="mr-1" /> Confirmar
+                                              </Button>
+                                              <Button
+                                                onClick={() => handleStatus(booking.id, "cancelado")}
+                                                variant="outline"
+                                                size="sm"
+                                                className="text-destructive border-destructive/30 hover:bg-destructive/10 font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
+                                              >
+                                                <XCircle size={12} className="mr-1" /> Cancelar
+                                              </Button>
+                                            </>
+                                          )}
+                                          {booking.status === "cancelado" && (
+                                            <Button
+                                              onClick={() => handleDelete(booking.id)}
+                                              variant="ghost"
+                                              size="sm"
+                                              className="text-muted-foreground hover:text-destructive font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
+                                            >
+                                              <Trash2 size={12} className="mr-1" /> Excluir
+                                            </Button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </motion.div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
