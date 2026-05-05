@@ -508,14 +508,19 @@ const AdminPage = () => {
 
   // Calcular receita de um booking confirmado
   const getBookingRevenue = (b: Booking): number => {
-    // Mensalista com preço manual: divide o total pelo número de agendamentos vinculados
+    // Mensalista com preço manual: o valor é por MÊS,
+    // então divide pelo número de agendamentos do mensalista NESSE mês.
     if (b.monthlySubscriberId) {
       const sub = subscribers.find((s) => s.id === b.monthlySubscriberId);
       if (sub && sub.price > 0) {
-        const subBookingCount = bookings.filter(
-          (x) => x.monthlySubscriberId === sub.id && x.status !== "cancelado"
+        const bookingMonth = b.date.slice(0, 7);
+        const monthBookingCount = bookings.filter(
+          (x) =>
+            x.monthlySubscriberId === sub.id &&
+            x.status !== "cancelado" &&
+            x.date.slice(0, 7) === bookingMonth
         ).length;
-        if (subBookingCount > 0) return sub.price / subBookingCount;
+        if (monthBookingCount > 0) return sub.price / monthBookingCount;
       }
     }
     if (b.courtId === "society") {
@@ -1298,6 +1303,13 @@ const AdminPage = () => {
                     const linkedCount = bookings.filter(
                       (b) => b.monthlySubscriberId === sub.id && b.status !== "cancelado"
                     ).length;
+                    const startMonthCount = bookings.filter(
+                      (b) =>
+                        b.monthlySubscriberId === sub.id &&
+                        b.status !== "cancelado" &&
+                        b.date.slice(0, 7) === sub.month
+                    ).length;
+                    const perSession = startMonthCount > 0 ? sub.price / startMonthCount : 0;
                     return (
                       <motion.div
                         key={sub.id}
@@ -1359,9 +1371,9 @@ const AdminPage = () => {
                           <div className="sm:col-span-2">
                             <span className="text-foreground/70 font-medium">Agendamentos ativos: </span>
                             <span className="text-emerald-500 font-semibold">{linkedCount}</span>
-                            {sub.price > 0 && linkedCount > 0 && (
+                            {sub.price > 0 && perSession > 0 && (
                               <span className="text-muted-foreground ml-2">
-                                (R$ {(sub.price / linkedCount).toFixed(2).replace(".", ",")} por sessão)
+                                (R$ {perSession.toFixed(2).replace(".", ",")} por sessão)
                               </span>
                             )}
                           </div>
