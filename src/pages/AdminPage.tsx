@@ -5,7 +5,7 @@ import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { loginAdmin, isSessionValid, clearSession } from "@/lib/auth";
 import { format, getDay, getDaysInMonth, addDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus, Users, Repeat, Calendar as CalendarOnly } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus, Users, Repeat, Calendar as CalendarOnly, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -66,7 +66,8 @@ const AdminPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [tab, setTab] = useState<"quadras" | "lista" | "caixa" | "mensalistas">("quadras");
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
-  const [manualBooking, setManualBooking] = useState<{ courtId: string; courtName: string; time: string } | null>(null);
+  const [manualBooking, setManualBooking] = useState<{ courtId: string; courtName: string; times: string[] } | null>(null);
+  const [manualSlots, setManualSlots] = useState<{ courtId: string; times: string[] }>({ courtId: "", times: [] });
   const [manualName, setManualName] = useState("");
   const [manualPhone, setManualPhone] = useState("");
   const [manualSport, setManualSport] = useState<Sport | null>(null);
@@ -89,6 +90,9 @@ const AdminPage = () => {
   const [monthlySubmitting, setMonthlySubmitting] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<MonthlySubscriber | null>(null);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [confirmMonthTarget, setConfirmMonthTarget] = useState<{ sub: MonthlySubscriber; monthYM: string } | null>(null);
+  const [confirmMonthLoading, setConfirmMonthLoading] = useState(false);
+  const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set());
   const knownConfirmedIdsRef = useRef<Set<string> | null>(null);
   const navigate = useNavigate();
 
@@ -424,20 +428,29 @@ const AdminPage = () => {
     toast.success("Sessão encerrada");
   };
 
-  const handleConfirmSubscriberMonth = async (subId: string, monthYM: string) => {
+  const handleConfirmSubscriberMonth = async () => {
+    if (!confirmMonthTarget) return;
+    const { sub, monthYM } = confirmMonthTarget;
     const targets = bookings.filter(
       (b) =>
-        b.monthlySubscriberId === subId &&
+        b.monthlySubscriberId === sub.id &&
         b.status === "pendente" &&
         b.date.slice(0, 7) === monthYM
     );
-    if (targets.length === 0) return;
+    if (targets.length === 0) {
+      setConfirmMonthTarget(null);
+      return;
+    }
+    setConfirmMonthLoading(true);
     try {
       await Promise.all(targets.map((b) => updateBookingStatus(b.id, "confirmado")));
       await refreshBookings();
+      setConfirmMonthTarget(null);
       toast.success(`${targets.length} agendamento(s) do mês confirmado(s)!`);
     } catch {
       toast.error("Erro ao confirmar pagamento do mês");
+    } finally {
+      setConfirmMonthLoading(false);
     }
   };
 
@@ -458,8 +471,24 @@ const AdminPage = () => {
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   };
 
-  const openManualBooking = (courtId: string, courtName: string, time: string) => {
-    setManualBooking({ courtId, courtName, time });
+  const toggleManualSlot = (courtId: string, courtName: string, time: string) => {
+    setManualSlots((prev) => {
+      if (prev.courtId && prev.courtId !== courtId) {
+        toast.info(`Seleção movida para ${courtName}`);
+        return { courtId, times: [time] };
+      }
+      const has = prev.times.includes(time);
+      const newTimes = has
+        ? prev.times.filter((t) => t !== time)
+        : [...prev.times, time].sort();
+      return { courtId: newTimes.length > 0 ? courtId : "", times: newTimes };
+    });
+  };
+
+  const clearManualSlots = () => setManualSlots({ courtId: "", times: [] });
+
+  const openManualBooking = (courtId: string, courtName: string, times: string[]) => {
+    setManualBooking({ courtId, courtName, times });
     setManualName("");
     setManualPhone("");
     setManualSport(null);
@@ -477,13 +506,14 @@ const AdminPage = () => {
         courtName: manualBooking.courtName,
         sport: manualBooking.courtId !== "society" ? (manualSport || undefined) : undefined,
         date: selectedDate,
-        time: manualBooking.time,
+        time: manualBooking.times.join(", "),
         name: manualName.trim(),
         phone: manualPhone,
       });
       await updateBookingStatus(booking.id, "confirmado");
       await refreshBookings();
       setManualBooking(null);
+      clearManualSlots();
       toast.success("Agendamento criado e confirmado!");
     } catch {
       toast.error("Erro ao criar agendamento");
@@ -976,8 +1006,8 @@ const AdminPage = () => {
                       animate={{ opacity: 1, y: 0 }}
                     >
                       {/* Court header */}
-                      <div className="bg-primary/10 px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between">
-                        <div>
+                      <div className="bg-primary/10 px-3 sm:px-4 py-2.5 sm:py-3 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
                           <h3 className="font-display text-base sm:text-lg text-foreground">{cName}</h3>
                           <p className="text-[9px] sm:text-[10px] font-body text-muted-foreground">
                             {cBookings.length} horário(s) ocupado(s)
@@ -986,11 +1016,11 @@ const AdminPage = () => {
                             )}
                           </p>
                         </div>
-                        {blockMode && (
+                        {blockMode ? (
                           <button
                             onClick={() => handleToggleBlockAll(cId)}
                             className={cn(
-                              "text-[9px] sm:text-[10px] font-body font-medium px-2 py-1 rounded-lg transition-all",
+                              "text-[9px] sm:text-[10px] font-body font-medium px-2 py-1 rounded-lg transition-all shrink-0",
                               isAllBlocked(cId)
                                 ? "bg-red-500/20 text-red-500 hover:bg-red-500/30"
                                 : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -1000,7 +1030,22 @@ const AdminPage = () => {
                               ? (blockType === "recurring" ? "Desbloquear tudo (perm.)" : "Desbloquear tudo")
                               : (blockType === "recurring" ? "Bloquear tudo (perm.)" : "Bloquear tudo")}
                           </button>
-                        )}
+                        ) : manualSlots.courtId === cId && manualSlots.times.length > 0 ? (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={clearManualSlots}
+                              className="text-[9px] sm:text-[10px] font-body font-medium px-2 py-1 rounded-lg bg-muted text-muted-foreground hover:bg-muted/80 transition-all"
+                            >
+                              Limpar
+                            </button>
+                            <button
+                              onClick={() => openManualBooking(cId, cName, manualSlots.times)}
+                              className="text-[9px] sm:text-[10px] font-body font-medium px-2 py-1 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                            >
+                              Reservar ({manualSlots.times.length})
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
 
                       {/* Time slots grid */}
@@ -1013,6 +1058,8 @@ const AdminPage = () => {
                             const isConfirmado = booking?.status === "confirmado";
                             const blocked = isSlotBlocked(cId, time);
                             const blockedRecurring = isSlotBlockedRecurring(cId, time);
+                            const isManualSelected =
+                              manualSlots.courtId === cId && manualSlots.times.includes(time);
 
                             return (
                               <div
@@ -1021,7 +1068,7 @@ const AdminPage = () => {
                                   if (blockMode && !isBooked) {
                                     handleToggleBlock(cId, time);
                                   } else if (!isBooked && !blocked) {
-                                    openManualBooking(cId, cName, time);
+                                    toggleManualSlot(cId, cName, time);
                                   }
                                 }}
                                 className={cn(
@@ -1034,6 +1081,8 @@ const AdminPage = () => {
                                     ? "bg-purple-100 dark:bg-purple-900/30 border border-purple-300 dark:border-purple-700 cursor-pointer"
                                     : blocked
                                     ? "bg-red-100 dark:bg-red-900/30 border border-red-300 dark:border-red-700 cursor-pointer"
+                                    : isManualSelected
+                                    ? "bg-primary/15 border border-primary ring-1 ring-primary/40 cursor-pointer"
                                     : blockMode
                                     ? "bg-muted/50 border border-border/50 cursor-pointer hover:border-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
                                     : "bg-muted/50 border border-border/50 cursor-pointer hover:border-primary/50 hover:bg-primary/5"
@@ -1045,6 +1094,7 @@ const AdminPage = () => {
                                     : isPendente ? "text-amber-700 dark:text-amber-400"
                                     : blockedRecurring ? "text-purple-700 dark:text-purple-400"
                                     : blocked ? "text-red-600 dark:text-red-400"
+                                    : isManualSelected ? "text-primary"
                                     : "text-muted-foreground/50"
                                 )}>
                                   {formatSlotRange(time)}
@@ -1087,6 +1137,10 @@ const AdminPage = () => {
                                       Bloqueado
                                     </p>
                                   </div>
+                                ) : isManualSelected ? (
+                                  <p className="text-[9px] font-body text-primary font-semibold mt-0.5">
+                                    <CheckCircle size={10} className="inline" /> Selecionado
+                                  </p>
                                 ) : (
                                   <p className="text-[9px] font-body text-muted-foreground/40 mt-0.5">
                                     <Plus size={10} className="inline" /> Livre
@@ -1252,7 +1306,7 @@ const AdminPage = () => {
                                   </div>
                                   {g.pending > 0 && (
                                     <Button
-                                      onClick={() => handleConfirmSubscriberMonth(g.sub.id, g.monthYM)}
+                                      onClick={() => setConfirmMonthTarget({ sub: g.sub, monthYM: g.monthYM })}
                                       size="sm"
                                       className="bg-emerald-600 hover:bg-emerald-700 text-white font-body rounded-lg text-[10px] sm:text-xs h-8 px-3"
                                     >
@@ -1549,6 +1603,11 @@ const AdminPage = () => {
                     const monthsList = Array.from(monthCounts.entries()).sort(
                       ([a], [b]) => a.localeCompare(b)
                     );
+                    const isExpanded = expandedSubs.has(sub.id);
+                    const totalPending = Array.from(monthCounts.values()).reduce(
+                      (sum, c) => sum + c.pending,
+                      0
+                    );
                     return (
                       <motion.div
                         key={sub.id}
@@ -1556,8 +1615,8 @@ const AdminPage = () => {
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                       >
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <div className="min-w-0">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <h3 className="font-display text-base sm:text-lg text-foreground">
                                 {sub.name}
@@ -1571,101 +1630,136 @@ const AdminPage = () => {
                                   Encerra no fim do mês
                                 </span>
                               )}
+                              {totalPending > 0 && (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-body font-medium text-amber-700 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/30">
+                                  <Clock size={10} /> {totalPending} pend.
+                                </span>
+                              )}
                             </div>
-                            <p className="text-xs font-body text-muted-foreground">{sub.phone}</p>
+                            <p className="text-xs font-body text-muted-foreground mt-0.5">
+                              {sub.phone}
+                            </p>
                           </div>
-                          <Button
-                            onClick={() => setCancelTarget(sub)}
-                            variant="outline"
-                            size="sm"
-                            className="text-destructive border-destructive/30 hover:bg-destructive/10 font-body rounded-lg h-8 px-2.5 shrink-0 text-xs gap-1"
-                          >
-                            <XCircle size={12} /> Encerrar
-                          </Button>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-body text-muted-foreground">
-                          <div>
-                            <span className="text-foreground/70 font-medium">Quadra: </span>
-                            {sub.courtName}
-                            {sub.sport && ` • ${sub.sport}`}
-                          </div>
-                          <div>
-                            <span className="text-foreground/70 font-medium">Mês: </span>
-                            {sub.month}
-                          </div>
-                          <div>
-                            <span className="text-foreground/70 font-medium">Dias: </span>
-                            {sub.weekdays.map((d) => weekdayLabels[d]).join(", ")}
-                          </div>
-                          <div>
-                            <span className="text-foreground/70 font-medium">Horários: </span>
-                            {sub.times.length > 0 && `${sub.times[0]} às ${formatSlotRange(sub.times[sub.times.length - 1]).split(" - ")[1]}`}
-                          </div>
-                          <div>
-                            <span className="text-foreground/70 font-medium">Valor mensal: </span>
-                            <span className="text-emerald-500 font-semibold">
-                              R$ {sub.price.toFixed(2).replace(".", ",")}
-                            </span>
-                          </div>
-                          <div className="sm:col-span-2">
-                            <span className="text-foreground/70 font-medium">Agendamentos ativos: </span>
-                            <span className="text-emerald-500 font-semibold">{linkedCount}</span>
-                            {sub.price > 0 && perSession > 0 && (
-                              <span className="text-muted-foreground ml-2">
-                                (R$ {perSession.toFixed(2).replace(".", ",")} por sessão)
-                              </span>
+                          <button
+                            onClick={() =>
+                              setExpandedSubs((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(sub.id)) next.delete(sub.id);
+                                else next.add(sub.id);
+                                return next;
+                              })
+                            }
+                            aria-label={isExpanded ? "Minimizar" : "Expandir"}
+                            aria-expanded={isExpanded}
+                            className={cn(
+                              "shrink-0 p-2 rounded-lg transition-all",
+                              isExpanded
+                                ? "bg-primary/10 text-primary"
+                                : "bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
                             )}
-                          </div>
+                          >
+                            {isExpanded ? <X size={18} /> : <Menu size={18} />}
+                          </button>
                         </div>
 
-                        {monthsList.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-border/40">
-                            <p className="text-xs font-body font-semibold text-foreground/80 mb-2">
-                              Pagamentos por mês — {sub.courtName}
-                            </p>
-                            <div className="space-y-1.5">
-                              {monthsList.map(([ym, counts]) => {
-                                const [yStr, mStr] = ym.split("-");
-                                const monthLabel = format(
-                                  new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1),
-                                  "MMMM 'de' yyyy",
-                                  { locale: ptBR }
-                                );
-                                const total = counts.confirmed + counts.pending;
-                                const allPaid = counts.pending === 0 && counts.confirmed > 0;
-                                return (
-                                  <div
-                                    key={ym}
-                                    className="flex items-center justify-between gap-2 text-xs font-body p-2 rounded-lg bg-muted/40"
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <span className="font-medium text-foreground capitalize">
-                                        {monthLabel}
-                                      </span>
-                                      <span className="text-muted-foreground ml-2">
-                                        {counts.confirmed}/{total}{" "}
-                                        {allPaid ? "confirmado" : "pendente"}
-                                        {total !== 1 ? "s" : ""}
-                                      </span>
-                                    </div>
-                                    {allPaid ? (
-                                      <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-md text-[10px] bg-emerald-100 dark:bg-emerald-900/30">
-                                        <CheckCircle size={12} /> Pago
-                                      </span>
-                                    ) : counts.pending > 0 ? (
-                                      <Button
-                                        onClick={() => handleConfirmSubscriberMonth(sub.id, ym)}
-                                        size="sm"
-                                        className="h-7 px-2.5 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-md"
-                                      >
-                                        Confirmar pagamento ({counts.pending})
-                                      </Button>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
+                        {isExpanded && (
+                          <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-body text-muted-foreground mt-3">
+                              <div>
+                                <span className="text-foreground/70 font-medium">Quadra: </span>
+                                {sub.courtName}
+                                {sub.sport && ` • ${sub.sport}`}
+                              </div>
+                              <div>
+                                <span className="text-foreground/70 font-medium">Mês: </span>
+                                {sub.month}
+                              </div>
+                              <div>
+                                <span className="text-foreground/70 font-medium">Dias: </span>
+                                {sub.weekdays.map((d) => weekdayLabels[d]).join(", ")}
+                              </div>
+                              <div>
+                                <span className="text-foreground/70 font-medium">Horários: </span>
+                                {sub.times.length > 0 && `${sub.times[0]} às ${formatSlotRange(sub.times[sub.times.length - 1]).split(" - ")[1]}`}
+                              </div>
+                              <div>
+                                <span className="text-foreground/70 font-medium">Valor mensal: </span>
+                                <span className="text-emerald-500 font-semibold">
+                                  R$ {sub.price.toFixed(2).replace(".", ",")}
+                                </span>
+                              </div>
+                              <div className="sm:col-span-2">
+                                <span className="text-foreground/70 font-medium">Agendamentos ativos: </span>
+                                <span className="text-emerald-500 font-semibold">{linkedCount}</span>
+                                {sub.price > 0 && perSession > 0 && (
+                                  <span className="text-muted-foreground ml-2">
+                                    (R$ {perSession.toFixed(2).replace(".", ",")} por sessão)
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
+
+                            {monthsList.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-border/40">
+                                <p className="text-xs font-body font-semibold text-foreground/80 mb-2">
+                                  Pagamentos por mês — {sub.courtName}
+                                </p>
+                                <div className="space-y-1.5">
+                                  {monthsList.map(([ym, counts]) => {
+                                    const [yStr, mStr] = ym.split("-");
+                                    const monthLabel = format(
+                                      new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1),
+                                      "MMMM 'de' yyyy",
+                                      { locale: ptBR }
+                                    );
+                                    const total = counts.confirmed + counts.pending;
+                                    const allPaid = counts.pending === 0 && counts.confirmed > 0;
+                                    return (
+                                      <div
+                                        key={ym}
+                                        className="flex items-center justify-between gap-2 text-xs font-body p-2 rounded-lg bg-muted/40"
+                                      >
+                                        <div className="flex-1 min-w-0">
+                                          <span className="font-medium text-foreground capitalize">
+                                            {monthLabel}
+                                          </span>
+                                          <span className="text-muted-foreground ml-2">
+                                            {counts.confirmed}/{total}{" "}
+                                            {allPaid ? "confirmado" : "pendente"}
+                                            {total !== 1 ? "s" : ""}
+                                          </span>
+                                        </div>
+                                        {allPaid ? (
+                                          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-md text-[10px] bg-emerald-100 dark:bg-emerald-900/30">
+                                            <CheckCircle size={12} /> Pago
+                                          </span>
+                                        ) : counts.pending > 0 ? (
+                                          <Button
+                                            onClick={() => setConfirmMonthTarget({ sub, monthYM: ym })}
+                                            size="sm"
+                                            className="h-7 px-2.5 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-md"
+                                          >
+                                            Confirmar pagamento ({counts.pending})
+                                          </Button>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="mt-3 pt-3 border-t border-border/40 flex justify-end">
+                              <Button
+                                onClick={() => setCancelTarget(sub)}
+                                variant="outline"
+                                size="sm"
+                                className="text-destructive border-destructive/30 hover:bg-destructive/10 font-body rounded-lg h-8 px-2.5 text-xs gap-1"
+                              >
+                                <XCircle size={12} /> Encerrar
+                              </Button>
+                            </div>
+                          </>
                         )}
                       </motion.div>
                     );
@@ -1694,7 +1788,13 @@ const AdminPage = () => {
 
             <div className="space-y-2 text-sm font-body text-muted-foreground mb-4">
               <p><span className="font-medium text-foreground">{manualBooking.courtName}</span></p>
-              <p>{format(new Date(selectedDate + "T12:00:00"), "dd 'de' MMM, yyyy", { locale: ptBR })} às <span className="font-medium text-foreground">{manualBooking.time}</span></p>
+              <p>{format(new Date(selectedDate + "T12:00:00"), "dd 'de' MMM, yyyy", { locale: ptBR })}</p>
+              <p>
+                <span className="text-foreground/70">
+                  {manualBooking.times.length} horário(s) ({(manualBooking.times.length * 30 / 60).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}h):
+                </span>{" "}
+                <span className="font-medium text-foreground">{manualBooking.times.join(", ")}</span>
+              </p>
             </div>
 
             <div className="space-y-3">
@@ -1956,6 +2056,134 @@ const AdminPage = () => {
           </motion.div>
         </div>
       )}
+
+      {/* Modal de confirmação de pagamento mensal */}
+      {confirmMonthTarget && (() => {
+        const { sub, monthYM } = confirmMonthTarget;
+        const monthBookings = bookings
+          .filter(
+            (b) =>
+              b.monthlySubscriberId === sub.id &&
+              b.date.slice(0, 7) === monthYM &&
+              b.status !== "cancelado"
+          )
+          .sort((a, b) => a.date.localeCompare(b.date));
+        const pendingBookings = monthBookings.filter((b) => b.status === "pendente");
+        const [yStr, mStr] = monthYM.split("-");
+        const monthLabel = format(
+          new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1),
+          "MMMM 'de' yyyy",
+          { locale: ptBR }
+        );
+        const formatBookingDate = (dateStr: string) => {
+          const [y, m, d] = dateStr.split("-").map(Number);
+          const dt = new Date(y, m - 1, d);
+          return format(dt, "EEE dd/MM", { locale: ptBR });
+        };
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4 py-6">
+            <motion.div
+              className="w-full max-w-md bg-card border border-border rounded-2xl p-5 sm:p-6 shadow-xl my-auto max-h-[90vh] flex flex-col"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+            >
+              <div className="flex items-center justify-between mb-3 shrink-0">
+                <h3 className="font-display text-lg sm:text-xl">Confirmar pagamento</h3>
+                <button
+                  onClick={() => !confirmMonthLoading && setConfirmMonthTarget(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-1 text-sm font-body mb-4 shrink-0">
+                <p className="font-medium text-foreground">{sub.name}</p>
+                <p className="text-muted-foreground text-xs capitalize">
+                  {monthLabel} • {sub.courtName}
+                  {sub.sport && ` • ${sub.sport}`}
+                </p>
+                <p className="text-xs">
+                  <span className="text-muted-foreground">Valor mensal: </span>
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                    R$ {sub.price.toFixed(2).replace(".", ",")}
+                  </span>
+                </p>
+              </div>
+
+              <div className="border-t border-border/40 pt-3 mb-3 shrink-0">
+                <p className="text-xs font-body font-semibold text-foreground/80 mb-2">
+                  {pendingBookings.length} horário(s) a confirmar (de {monthBookings.length} no mês):
+                </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-1.5 mb-4 pr-1">
+                {monthBookings.map((b) => {
+                  const willConfirm = b.status === "pendente";
+                  return (
+                    <div
+                      key={b.id}
+                      className={cn(
+                        "flex items-center justify-between gap-2 text-xs font-body p-2 rounded-lg",
+                        willConfirm
+                          ? "bg-amber-50 dark:bg-amber-900/20 border border-amber-200/60 dark:border-amber-800/40"
+                          : "bg-muted/40"
+                      )}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium text-foreground capitalize">
+                          {formatBookingDate(b.date)}
+                        </span>
+                        <span className="text-muted-foreground ml-2">
+                          {formatBookingTime(b.time)}
+                        </span>
+                      </div>
+                      {willConfirm ? (
+                        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                          <Clock size={10} /> Pendente
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded text-[10px] font-medium">
+                          <CheckCircle size={10} /> Confirmado
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+                {monthBookings.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-4">
+                    Sem agendamentos neste mês.
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmMonthTarget(null)}
+                  disabled={confirmMonthLoading}
+                  className="flex-1 h-10 font-body rounded-xl text-sm"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleConfirmSubscriberMonth}
+                  disabled={confirmMonthLoading || pendingBookings.length === 0}
+                  className="flex-1 h-10 font-body font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm gap-1"
+                >
+                  {confirmMonthLoading ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <>
+                      <CheckCircle size={14} /> Confirmar {pendingBookings.length}
+                    </>
+                  )}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        );
+      })()}
 
       {/* Modal de cancelamento de mensalista */}
       {cancelTarget && (
