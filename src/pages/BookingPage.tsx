@@ -134,10 +134,36 @@ const BookingPage = () => {
 
   const handleToggleTime = (t: string) => {
     setSelectedTimes((prev) => {
+      const toMinutes = (time: string) => {
+        const [h, m] = time.split(":").map(Number);
+        return h * 60 + m;
+      };
+
+      // Já selecionado: só permite remover das extremidades (senão criaria intervalo)
       if (prev.includes(t)) {
-        return prev.filter((x) => x !== t);
+        const sorted = [...prev].sort();
+        const isFirstOrLast = t === sorted[0] || t === sorted[sorted.length - 1];
+        if (isFirstOrLast) {
+          return prev.filter((x) => x !== t);
+        }
+        toast.error("Para desmarcar, comece pelo primeiro ou último horário da seleção.");
+        return prev;
       }
-      return [...prev, t].sort();
+
+      // Primeira seleção: aceita qualquer horário
+      if (prev.length === 0) return [t];
+
+      // Adicionar: precisa ser adjacente (30min antes do primeiro ou depois do último)
+      const sorted = [...prev].sort();
+      const tMin = toMinutes(t);
+      const firstMin = toMinutes(sorted[0]);
+      const lastMin = toMinutes(sorted[sorted.length - 1]);
+      if (tMin === firstMin - 30 || tMin === lastMin + 30) {
+        return [...prev, t].sort();
+      }
+
+      toast.error("Selecione horários em sequência — clique no horário ao lado da sua seleção.");
+      return prev;
     });
   };
 
@@ -549,7 +575,7 @@ const BookingPage = () => {
                   )}
                   {selectedTimes.length >= 2 && (
                     <p className="text-xs text-muted-foreground font-body mt-2">
-                      Clique novamente para desmarcar um horário
+                      Os horários devem ser consecutivos. Para desmarcar, comece pelo primeiro ou último.
                     </p>
                   )}
 
