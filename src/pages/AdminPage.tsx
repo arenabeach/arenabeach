@@ -395,10 +395,10 @@ const AdminPage = () => {
     }
   }, [authenticated, refreshBookings]);
 
-  // Auto-refresh a cada 30 segundos
+  // Auto-refresh a cada 2 minutos
   useEffect(() => {
     if (!authenticated) return;
-    const interval = setInterval(refreshBookings, 30000);
+    const interval = setInterval(refreshBookings, 120000);
     return () => clearInterval(interval);
   }, [authenticated, refreshBookings]);
 
