@@ -1,4 +1,30 @@
 import { supabase } from "./supabase";
+import { getSessionToken } from "./auth";
+
+// Janela de tempo (em minutos) em que um booking pendente continua bloqueando o slot.
+// Depois disso ele é considerado abandonado (PIX já expirou no MP) e ignorado.
+const PENDING_TTL_MINUTES = 30;
+
+async function adminCall<T = unknown>(op: string, args: Record<string, unknown> = {}): Promise<T> {
+  const token = getSessionToken();
+  if (!token) {
+    throw new Error("Sessão admin expirada. Faça login novamente.");
+  }
+  const res = await fetch("/api/admin", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-token": token },
+    body: JSON.stringify({ op, args }),
+  });
+  if (!res.ok) {
+    let msg = `Erro ${res.status}`;
+    try {
+      const data = await res.json();
+      if (data?.error) msg = data.error;
+    } catch { /* noop */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
 
 export const sports = ["Vôlei", "Beach Tennis", "Futevôlei", "Futebol Society"] as const;
 export type Sport = typeof sports[number];
@@ -76,23 +102,23 @@ export const updateBookingStatus = async (
   id: string,
   status: Booking["status"]
 ): Promise<void> => {
-  const { error } = await supabase
-    .from("bookings")
-    .update({ status })
-    .eq("id", id);
-
-  if (error) {
-    console.error("Erro ao atualizar status:", error);
-    throw new Error("Erro ao atualizar status");
-  }
+  await adminCall("updateBookingStatus", { id, status });
 };
 
 export const deleteBooking = async (id: string): Promise<void> => {
-  const { error } = await supabase.from("bookings").delete().eq("id", id);
+  await adminCall("deleteBooking", { id });
+};
 
-  if (error) {
-    console.error("Erro ao excluir agendamento:", error);
-    throw new Error("Erro ao excluir agendamento");
+// Cancela um booking pendente sem precisar de sessão admin — usado pelo
+// cliente público quando ele fecha o PIX. Não derruba bookings confirmados.
+export const cancelPendingBooking = async (bookingId: string): Promise<void> => {
+  const res = await fetch("/api/cancel-booking", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bookingId }),
+  });
+  if (!res.ok) {
+    throw new Error("Erro ao cancelar agendamento");
   }
 };
 
@@ -118,14 +144,15 @@ export const isTimeSlotBooked = async (
   );
 };
 
-// Busca todos os horários ocupados de uma quadra em uma data (para evitar múltiplas queries)
+// Busca todos os horários ocupados de uma quadra em uma data (para evitar múltiplas queries).
+// Pendentes velhos (PIX expirado) são ignorados.
 export const getBookedSlots = async (
   courtId: string,
   date: string
 ): Promise<Set<string>> => {
   const { data, error } = await supabase
     .from("bookings")
-    .select("time")
+    .select("time, status, created_at")
     .eq("court_id", courtId)
     .eq("date", date)
     .neq("status", "cancelado");
@@ -135,20 +162,27 @@ export const getBookedSlots = async (
     return new Set();
   }
 
+  const ttlCutoff = Date.now() - PENDING_TTL_MINUTES * 60 * 1000;
   const slots = new Set<string>();
   (data || []).forEach((row) => {
+    if (row.status === "pendente") {
+      const createdMs = new Date(row.created_at as string).getTime();
+      if (Number.isFinite(createdMs) && createdMs < ttlCutoff) return;
+    }
     (row.time as string).split(", ").forEach((t) => slots.add(t));
   });
   return slots;
 };
 
-// Busca todos os horários ocupados de TODAS as quadras em uma data
+// Busca todos os horários ocupados de TODAS as quadras em uma data.
+// Pendentes mais velhos que PENDING_TTL_MINUTES são considerados abandonados
+// (o PIX do Mercado Pago já expirou) e não bloqueiam o slot.
 export const getAllBookedSlots = async (
   date: string
 ): Promise<Record<string, Set<string>>> => {
   const { data, error } = await supabase
     .from("bookings")
-    .select("court_id, time")
+    .select("court_id, time, status, created_at")
     .eq("date", date)
     .neq("status", "cancelado");
 
@@ -157,8 +191,13 @@ export const getAllBookedSlots = async (
     return {};
   }
 
+  const ttlCutoff = Date.now() - PENDING_TTL_MINUTES * 60 * 1000;
   const result: Record<string, Set<string>> = {};
   (data || []).forEach((row) => {
+    if (row.status === "pendente") {
+      const createdMs = new Date(row.created_at as string).getTime();
+      if (Number.isFinite(createdMs) && createdMs < ttlCutoff) return;
+    }
     const courtId = row.court_id as string;
     if (!result[courtId]) result[courtId] = new Set();
     (row.time as string).split(", ").forEach((t) => result[courtId].add(t));
@@ -291,14 +330,7 @@ export const blockSlotRecurring = async (
   time: string,
   reason?: string
 ): Promise<void> => {
-  const { error } = await supabase
-    .from("recurring_blocked_slots")
-    .insert({ court_id: courtId, time, reason: reason || null });
-
-  if (error) {
-    console.error("Erro ao bloquear permanentemente:", error);
-    throw new Error("Erro ao bloquear horário permanentemente");
-  }
+  await adminCall("blockSlotRecurring", { courtId, time, reason });
 };
 
 // Desbloquear um horário permanente
@@ -306,16 +338,7 @@ export const unblockSlotRecurring = async (
   courtId: string,
   time: string
 ): Promise<void> => {
-  const { error } = await supabase
-    .from("recurring_blocked_slots")
-    .delete()
-    .eq("court_id", courtId)
-    .eq("time", time);
-
-  if (error) {
-    console.error("Erro ao desbloquear permanente:", error);
-    throw new Error("Erro ao desbloquear horário permanente");
-  }
+  await adminCall("unblockSlotRecurring", { courtId, time });
 };
 
 // Bloquear um slot
@@ -325,19 +348,7 @@ export const blockSlot = async (
   time: string,
   reason?: string
 ): Promise<void> => {
-  const { error } = await supabase
-    .from("blocked_slots")
-    .insert({
-      court_id: courtId,
-      date,
-      time,
-      reason: reason || null,
-    });
-
-  if (error) {
-    console.error("Erro ao bloquear slot:", error);
-    throw new Error("Erro ao bloquear horário");
-  }
+  await adminCall("blockSlot", { courtId, date, time, reason });
 };
 
 // Desbloquear um slot
@@ -346,17 +357,7 @@ export const unblockSlot = async (
   date: string,
   time: string
 ): Promise<void> => {
-  const { error } = await supabase
-    .from("blocked_slots")
-    .delete()
-    .eq("court_id", courtId)
-    .eq("date", date)
-    .eq("time", time);
-
-  if (error) {
-    console.error("Erro ao desbloquear slot:", error);
-    throw new Error("Erro ao desbloquear horário");
-  }
+  await adminCall("unblockSlot", { courtId, date, time });
 };
 
 // Bloquear todos os horários de uma quadra em uma data
@@ -365,21 +366,7 @@ export const blockAllSlots = async (
   date: string,
   reason?: string
 ): Promise<void> => {
-  const rows = timeSlots.map((time) => ({
-    court_id: courtId,
-    date,
-    time,
-    reason: reason || null,
-  }));
-
-  const { error } = await supabase
-    .from("blocked_slots")
-    .upsert(rows, { onConflict: "court_id,date,time" });
-
-  if (error) {
-    console.error("Erro ao bloquear todos os slots:", error);
-    throw new Error("Erro ao bloquear todos os horários");
-  }
+  await adminCall("blockAllSlots", { courtId, date, reason, times: timeSlots });
 };
 
 // Desbloquear todos os horários de uma quadra em uma data
@@ -387,16 +374,7 @@ export const unblockAllSlots = async (
   courtId: string,
   date: string
 ): Promise<void> => {
-  const { error } = await supabase
-    .from("blocked_slots")
-    .delete()
-    .eq("court_id", courtId)
-    .eq("date", date);
-
-  if (error) {
-    console.error("Erro ao desbloquear todos os slots:", error);
-    throw new Error("Erro ao desbloquear todos os horários");
-  }
+  await adminCall("unblockAllSlots", { courtId, date });
 };
 
 // Bloquear permanentemente todos os horários de uma quadra (todas as datas)
@@ -404,44 +382,14 @@ export const blockAllSlotsRecurring = async (
   courtId: string,
   reason?: string
 ): Promise<void> => {
-  // Limpa os bloqueios permanentes existentes desta quadra e reinsere todos
-  const { error: delError } = await supabase
-    .from("recurring_blocked_slots")
-    .delete()
-    .eq("court_id", courtId);
-
-  if (delError) {
-    console.error("Erro ao limpar bloqueios permanentes:", delError);
-    throw new Error("Erro ao bloquear todos permanentemente");
-  }
-
-  const rows = timeSlots.map((time) => ({
-    court_id: courtId,
-    time,
-    reason: reason || null,
-  }));
-
-  const { error } = await supabase.from("recurring_blocked_slots").insert(rows);
-
-  if (error) {
-    console.error("Erro ao bloquear todos permanente:", error);
-    throw new Error("Erro ao bloquear todos permanentemente");
-  }
+  await adminCall("blockAllSlotsRecurring", { courtId, reason, times: timeSlots });
 };
 
 // Desbloquear todos os bloqueios permanentes de uma quadra
 export const unblockAllSlotsRecurring = async (
   courtId: string
 ): Promise<void> => {
-  const { error } = await supabase
-    .from("recurring_blocked_slots")
-    .delete()
-    .eq("court_id", courtId);
-
-  if (error) {
-    console.error("Erro ao desbloquear todos permanente:", error);
-    throw new Error("Erro ao desbloquear todos permanentemente");
-  }
+  await adminCall("unblockAllSlotsRecurring", { courtId });
 };
 
 // =================== MONTHLY SUBSCRIBERS (MENSALISTAS) ===================
@@ -477,98 +425,35 @@ const mapSubscriberRow = (row: Record<string, unknown>): MonthlySubscriber => ({
 });
 
 export const getMonthlySubscribers = async (): Promise<MonthlySubscriber[]> => {
-  const { data, error } = await supabase
-    .from("monthly_subscribers")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error("Erro ao buscar mensalistas:", error);
+  try {
+    const { data } = await adminCall<{ data: Record<string, unknown>[] }>(
+      "getMonthlySubscribers"
+    );
+    return (data || []).map(mapSubscriberRow);
+  } catch (err) {
+    console.error("Erro ao buscar mensalistas:", err);
     return [];
   }
-  return (data || []).map(mapSubscriberRow);
 };
 
 export const addMonthlySubscriber = async (
   sub: Omit<MonthlySubscriber, "id" | "createdAt" | "active">
 ): Promise<MonthlySubscriber> => {
-  const { data, error } = await supabase
-    .from("monthly_subscribers")
-    .insert({
-      name: sub.name,
-      phone: sub.phone,
-      court_id: sub.courtId,
-      court_name: sub.courtName,
-      sport: sub.sport || null,
-      weekdays: sub.weekdays,
-      times: sub.times,
-      month: sub.month,
-      price: sub.price,
-      active: true,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error("Erro ao criar mensalista:", error);
-    throw new Error("Erro ao criar mensalista");
-  }
+  const { data } = await adminCall<{ data: Record<string, unknown> }>(
+    "addMonthlySubscriber",
+    { sub }
+  );
   return mapSubscriberRow(data);
 };
 
 export const deleteMonthlySubscriber = async (id: string): Promise<void> => {
-  // Excluir os agendamentos vinculados primeiro
-  const { error: bookingsError } = await supabase
-    .from("bookings")
-    .delete()
-    .eq("monthly_subscriber_id", id);
-
-  if (bookingsError) {
-    console.error("Erro ao excluir agendamentos do mensalista:", bookingsError);
-    throw new Error("Erro ao excluir agendamentos do mensalista");
-  }
-
-  const { error } = await supabase
-    .from("monthly_subscribers")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    console.error("Erro ao excluir mensalista:", error);
-    throw new Error("Erro ao excluir mensalista");
-  }
+  await adminCall("deleteMonthlySubscriber", { id });
 };
 
 // Encerra mensalista no fim do mês corrente: marca como inativo e remove
 // agendamentos a partir do próximo mês (mantém os do mês atual).
 export const endSubscriberAtMonthEnd = async (id: string): Promise<void> => {
-  const today = new Date();
-  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  const y = endOfMonth.getFullYear();
-  const m = String(endOfMonth.getMonth() + 1).padStart(2, "0");
-  const d = String(endOfMonth.getDate()).padStart(2, "0");
-  const endOfMonthStr = `${y}-${m}-${d}`;
-
-  const { error: subErr } = await supabase
-    .from("monthly_subscribers")
-    .update({ active: false })
-    .eq("id", id);
-
-  if (subErr) {
-    console.error("Erro ao desativar mensalista:", subErr);
-    throw new Error("Erro ao desativar mensalista");
-  }
-
-  const { error: bkErr } = await supabase
-    .from("bookings")
-    .delete()
-    .eq("monthly_subscriber_id", id)
-    .gt("date", endOfMonthStr);
-
-  if (bkErr) {
-    console.error("Erro ao remover agendamentos futuros:", bkErr);
-    throw new Error("Erro ao remover agendamentos futuros");
-  }
+  await adminCall("endSubscriberAtMonthEnd", { id });
 };
 
 // Garante que cada mensalista ativo tenha bookings gerados até `monthsAhead`
@@ -577,72 +462,11 @@ export const endSubscriberAtMonthEnd = async (id: string): Promise<void> => {
 export const ensureSubscriberBookings = async (
   monthsAhead: number = 6
 ): Promise<number> => {
-  const subs = await getMonthlySubscribers();
-  const active = subs.filter((s) => s.active);
-  if (active.length === 0) return 0;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const targetEnd = new Date(today);
-  targetEnd.setMonth(targetEnd.getMonth() + monthsAhead);
-
-  const fmt = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  };
-
-  let totalCreated = 0;
-
-  for (const sub of active) {
-    const { data: existing } = await supabase
-      .from("bookings")
-      .select("date")
-      .eq("monthly_subscriber_id", sub.id);
-
-    const existingDates = new Set((existing || []).map((r) => r.date as string));
-
-    const [yearStr, monthStr] = sub.month.split("-");
-    const startOfStartMonth = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, 1);
-    const cursor = new Date(Math.max(today.getTime(), startOfStartMonth.getTime()));
-    cursor.setHours(0, 0, 0, 0);
-
-    const timeDisplay = sub.times.join(", ");
-    const rows: Record<string, unknown>[] = [];
-
-    while (cursor.getTime() <= targetEnd.getTime()) {
-      const weekday = cursor.getDay();
-      if (sub.weekdays.includes(weekday)) {
-        const dateStr = fmt(cursor);
-        if (!existingDates.has(dateStr)) {
-          rows.push({
-            court_id: sub.courtId,
-            court_name: sub.courtName,
-            sport: sub.sport || null,
-            date: dateStr,
-            time: timeDisplay,
-            name: sub.name,
-            phone: sub.phone,
-            status: "pendente",
-            monthly_subscriber_id: sub.id,
-          });
-        }
-      }
-      cursor.setDate(cursor.getDate() + 1);
-    }
-
-    if (rows.length > 0) {
-      const { error } = await supabase.from("bookings").insert(rows);
-      if (error) {
-        console.error(`Erro ao renovar mensalista ${sub.id}:`, error);
-      } else {
-        totalCreated += rows.length;
-      }
-    }
-  }
-
-  return totalCreated;
+  const { totalCreated } = await adminCall<{ totalCreated: number }>(
+    "ensureSubscriberBookings",
+    { monthsAhead }
+  );
+  return totalCreated || 0;
 };
 
 // Cria booking vinculado a um mensalista (pula a flag de status pendente)
@@ -650,25 +474,9 @@ export const addBookingForSubscriber = async (
   booking: Omit<Booking, "id" | "createdAt" | "status">,
   subscriberId: string
 ): Promise<Booking> => {
-  const { data, error } = await supabase
-    .from("bookings")
-    .insert({
-      court_id: booking.courtId,
-      court_name: booking.courtName,
-      sport: booking.sport || null,
-      date: booking.date,
-      time: booking.time,
-      name: booking.name,
-      phone: booking.phone,
-      status: "confirmado",
-      monthly_subscriber_id: subscriberId,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error("Erro ao criar agendamento de mensalista:", error);
-    throw new Error("Erro ao criar agendamento de mensalista");
-  }
+  const { data } = await adminCall<{ data: Record<string, unknown> }>(
+    "addBookingForSubscriber",
+    { booking, subscriberId }
+  );
   return mapRow(data);
 };

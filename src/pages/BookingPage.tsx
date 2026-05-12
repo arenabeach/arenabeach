@@ -14,7 +14,7 @@ import {
   courtPrices,
   timeSlots,
   addBooking,
-  updateBookingStatus,
+  cancelPendingBooking,
   getAllBookedSlots,
   getBlockedSlots,
   societyDurations,
@@ -176,13 +176,17 @@ const BookingPage = () => {
   }, []);
 
   // Cancelar booking se o usuário FECHAR a aba/janela com PIX não pago.
+  // Usa navigator.sendBeacon — única API que o navegador garante entregar
+  // mesmo com a aba já fechando. fetch() async não chega no servidor.
   // Importante: NÃO chamar cancelOnLeave no cleanup do effect, porque o cleanup
   // dispara a cada mudança de deps (ex.: pixStatus null -> "pending") usando o
   // closure do render anterior e cancelaria o booking recém-criado.
   useEffect(() => {
     const cancelOnLeave = () => {
       if (pendingBookingId && pixStatus !== "approved") {
-        updateBookingStatus(pendingBookingId, "cancelado");
+        const payload = JSON.stringify({ bookingId: pendingBookingId });
+        const blob = new Blob([payload], { type: "application/json" });
+        navigator.sendBeacon("/api/cancel-booking", blob);
       }
     };
     window.addEventListener("beforeunload", cancelOnLeave);
@@ -195,7 +199,7 @@ const BookingPage = () => {
     if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     if (pendingBookingId) {
       try {
-        await updateBookingStatus(pendingBookingId, "cancelado");
+        await cancelPendingBooking(pendingBookingId);
       } catch { /* ignore */ }
     }
     setPendingBookingId(null);
