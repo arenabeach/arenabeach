@@ -867,6 +867,29 @@ const BookingPage = () => {
                     </div>
                   </div>
 
+                  {/* Política de Cancelamento */}
+                  <div className="glass-card rounded-2xl p-4 sm:p-5">
+                    <div className="flex items-start gap-3">
+                      <Clock size={18} className="text-primary shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <h4 className="font-body font-semibold text-sm text-foreground mb-1.5">
+                          Política de Cancelamento
+                        </h4>
+                        <p className="text-xs text-muted-foreground font-body leading-relaxed mb-2">
+                          Para garantir uma experiência justa para todos os nossos clientes:
+                        </p>
+                        <ul className="text-xs text-muted-foreground font-body space-y-1 leading-relaxed">
+                          <li>
+                            <span className="text-foreground/80 font-medium">24h antes</span> do horário do agendamento: sem cobrança de taxas
+                          </li>
+                          <li>
+                            <span className="text-foreground/80 font-medium">Até 3 horas antes</span> do horário agendado: 50% do valor contratado
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Payment PIX - QR Code */}
                   {pixData ? (
                     <motion.div

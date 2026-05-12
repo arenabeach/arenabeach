@@ -5,7 +5,7 @@ const Footer = () => {
   return (
     <footer className="py-8 xs:py-10 sm:py-12 px-3 xs:px-4 sm:px-6 border-t border-border bg-card/50">
       <div className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 xs:gap-8 mb-6 xs:mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 xs:gap-8 mb-6 xs:mb-8">
           <div className="flex flex-col items-center sm:items-start gap-2 xs:gap-3 text-center sm:text-left">
             <div className="flex items-center gap-1.5 xs:gap-2 sm:gap-3">
               <img src={logoImg} alt="Logo" className="h-7 xs:h-8 sm:h-10 object-contain" />
@@ -41,6 +41,14 @@ const Footer = () => {
             <div className="space-y-1 text-xs xs:text-sm font-body text-muted-foreground">
               <p>Segunda a Sexta: 17h - 22:30h</p>
               <p>Sábados e Domingos: 17h - 22:30h</p>
+            </div>
+          </div>
+
+          <div className="text-center sm:text-left">
+            <h4 className="font-display text-base xs:text-lg tracking-wide text-foreground mb-2 xs:mb-3">Cancelamento</h4>
+            <div className="space-y-1.5 text-xs xs:text-sm font-body text-muted-foreground">
+              <p>Até 24h antes: <span className="text-foreground/80">sem cobrança</span></p>
+              <p>Até 3h antes: <span className="text-foreground/80">50% do valor</span></p>
             </div>
           </div>
         </div>
