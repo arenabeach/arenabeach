@@ -685,29 +685,42 @@ const AdminPage = () => {
 
   const confirmedBookings = bookings.filter((b) => b.status === "confirmado");
 
-  // Receita por período
+  // Helpers para somar receita filtrando por escopo (geral, quadras, society)
+  const isSocietyBooking = (b: Booking) => b.courtId === "society";
+  const sumRevenue = (list: Booking[]) => list.reduce((sum, b) => sum + getBookingRevenue(b), 0);
+
+  // Receita por período — total geral (quadras + society)
   const today = format(new Date(), "yyyy-MM-dd");
-  const revenueToday = confirmedBookings
-    .filter((b) => b.date === today)
-    .reduce((sum, b) => sum + getBookingRevenue(b), 0);
+  const revenueToday = sumRevenue(confirmedBookings.filter((b) => b.date === today));
+  const revenueSelectedDate = sumRevenue(confirmedBookings.filter((b) => b.date === selectedDate));
+  const revenueTotal = sumRevenue(confirmedBookings);
 
-  const revenueSelectedDate = confirmedBookings
-    .filter((b) => b.date === selectedDate)
-    .reduce((sum, b) => sum + getBookingRevenue(b), 0);
+  // Receita só das quadras (quadra-01..05)
+  const courtsOnly = confirmedBookings.filter((b) => !isSocietyBooking(b));
+  const revenueCourtsToday = sumRevenue(courtsOnly.filter((b) => b.date === today));
+  const revenueCourtsSelected = sumRevenue(courtsOnly.filter((b) => b.date === selectedDate));
+  const revenueCourtsTotal = sumRevenue(courtsOnly);
 
-  const revenueTotal = confirmedBookings
-    .reduce((sum, b) => sum + getBookingRevenue(b), 0);
+  // Receita só do Campo Society
+  const societyOnly = confirmedBookings.filter((b) => isSocietyBooking(b));
+  const revenueSocietyToday = sumRevenue(societyOnly.filter((b) => b.date === today));
+  const revenueSocietySelected = sumRevenue(societyOnly.filter((b) => b.date === selectedDate));
+  const revenueSocietyTotal = sumRevenue(societyOnly);
 
-  // Receita por quadra
-  const revenueByCourtSelected = courtIds.map((cId) => {
-    const courtBookings = confirmedBookings.filter((b) => b.courtId === cId && b.date === selectedDate);
-    return {
-      courtId: cId,
-      courtName: courtNames[cId],
-      count: courtBookings.length,
-      revenue: courtBookings.reduce((sum, b) => sum + getBookingRevenue(b), 0),
-    };
-  });
+  // Receita por quadra (apenas as 5 quadras, sem society)
+  const revenueByCourtSelected = courtIds
+    .filter((cId) => cId !== "society")
+    .map((cId) => {
+      const courtBookings = confirmedBookings.filter(
+        (b) => b.courtId === cId && b.date === selectedDate
+      );
+      return {
+        courtId: cId,
+        courtName: courtNames[cId],
+        count: courtBookings.length,
+        revenue: sumRevenue(courtBookings),
+      };
+    });
 
   // Get bookings for a specific court and date
   const getCourtBookings = (courtId: string, date: string) => {
@@ -1455,44 +1468,85 @@ const AdminPage = () => {
                 </button>
               </div>
 
-              {/* Revenue cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
-                  <p className="text-xs font-body text-muted-foreground mb-1">Hoje</p>
-                  <p className="text-2xl sm:text-3xl font-display text-emerald-500">
-                    R$ {revenueToday.toFixed(2).replace(".", ",")}
-                  </p>
-                  <p className="text-[10px] font-body text-muted-foreground mt-1">
-                    {confirmedBookings.filter((b) => b.date === today).length} agendamento(s)
-                  </p>
-                </div>
-                <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
-                  <p className="text-xs font-body text-muted-foreground mb-1">
-                    {selectedDate === today ? "Hoje" : format(dateObj, "dd/MM/yyyy")}
-                  </p>
-                  <p className="text-2xl sm:text-3xl font-display text-primary">
-                    R$ {revenueSelectedDate.toFixed(2).replace(".", ",")}
-                  </p>
-                  <p className="text-[10px] font-body text-muted-foreground mt-1">
-                    {confirmedBookings.filter((b) => b.date === selectedDate).length} agendamento(s)
-                  </p>
-                </div>
-                <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
-                  <p className="text-xs font-body text-muted-foreground mb-1">Total geral</p>
-                  <p className="text-2xl sm:text-3xl font-display text-foreground">
-                    R$ {revenueTotal.toFixed(2).replace(".", ",")}
-                  </p>
-                  <p className="text-[10px] font-body text-muted-foreground mt-1">
-                    {confirmedBookings.length} agendamento(s)
-                  </p>
+              {/* ─── GERAL ─── */}
+              <div>
+                <h3 className="font-display text-lg sm:text-xl mb-3 flex items-center gap-2">
+                  <DollarSign size={18} className="text-foreground/70" /> Geral
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                    <p className="text-xs font-body text-muted-foreground mb-1">Hoje</p>
+                    <p className="text-2xl sm:text-3xl font-display text-emerald-500">
+                      R$ {revenueToday.toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-[10px] font-body text-muted-foreground mt-1">
+                      {confirmedBookings.filter((b) => b.date === today).length} agendamento(s)
+                    </p>
+                  </div>
+                  <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                    <p className="text-xs font-body text-muted-foreground mb-1">
+                      {selectedDate === today ? "Hoje" : format(dateObj, "dd/MM/yyyy")}
+                    </p>
+                    <p className="text-2xl sm:text-3xl font-display text-primary">
+                      R$ {revenueSelectedDate.toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-[10px] font-body text-muted-foreground mt-1">
+                      {confirmedBookings.filter((b) => b.date === selectedDate).length} agendamento(s)
+                    </p>
+                  </div>
+                  <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                    <p className="text-xs font-body text-muted-foreground mb-1">Total geral</p>
+                    <p className="text-2xl sm:text-3xl font-display text-foreground">
+                      R$ {revenueTotal.toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-[10px] font-body text-muted-foreground mt-1">
+                      {confirmedBookings.length} agendamento(s)
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              {/* Revenue by court for selected date */}
+              {/* ─── QUADRAS ─── */}
               <div>
-                <h3 className="font-display text-lg sm:text-xl mb-3">
-                  Faturamento por quadra — {format(dateObj, "dd/MM/yyyy")}
+                <h3 className="font-display text-lg sm:text-xl mb-3 flex items-center gap-2">
+                  <LayoutGrid size={18} className="text-primary" /> Quadras
                 </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                  <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                    <p className="text-xs font-body text-muted-foreground mb-1">Hoje</p>
+                    <p className="text-2xl sm:text-3xl font-display text-emerald-500">
+                      R$ {revenueCourtsToday.toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-[10px] font-body text-muted-foreground mt-1">
+                      {courtsOnly.filter((b) => b.date === today).length} agendamento(s)
+                    </p>
+                  </div>
+                  <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                    <p className="text-xs font-body text-muted-foreground mb-1">
+                      {selectedDate === today ? "Hoje" : format(dateObj, "dd/MM/yyyy")}
+                    </p>
+                    <p className="text-2xl sm:text-3xl font-display text-primary">
+                      R$ {revenueCourtsSelected.toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-[10px] font-body text-muted-foreground mt-1">
+                      {courtsOnly.filter((b) => b.date === selectedDate).length} agendamento(s)
+                    </p>
+                  </div>
+                  <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                    <p className="text-xs font-body text-muted-foreground mb-1">Total</p>
+                    <p className="text-2xl sm:text-3xl font-display text-foreground">
+                      R$ {revenueCourtsTotal.toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-[10px] font-body text-muted-foreground mt-1">
+                      {courtsOnly.length} agendamento(s)
+                    </p>
+                  </div>
+                </div>
+
+                {/* Faturamento por quadra na data selecionada */}
+                <p className="text-xs font-body text-muted-foreground mb-2">
+                  Por quadra em {format(dateObj, "dd/MM/yyyy")}
+                </p>
                 <div className="space-y-2">
                   {revenueByCourtSelected.map((court) => (
                     <div
@@ -1516,8 +1570,46 @@ const AdminPage = () => {
                 </div>
               </div>
 
-              {/* Confirmed bookings list for selected date */}
-              {confirmedBookings.filter((b) => b.date === selectedDate).length > 0 && (
+              {/* ─── CAMPO SOCIETY ─── */}
+              <div>
+                <h3 className="font-display text-lg sm:text-xl mb-3 flex items-center gap-2">
+                  <Users size={18} className="text-palm" /> Campo Society
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                    <p className="text-xs font-body text-muted-foreground mb-1">Hoje</p>
+                    <p className="text-2xl sm:text-3xl font-display text-emerald-500">
+                      R$ {revenueSocietyToday.toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-[10px] font-body text-muted-foreground mt-1">
+                      {societyOnly.filter((b) => b.date === today).length} agendamento(s)
+                    </p>
+                  </div>
+                  <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                    <p className="text-xs font-body text-muted-foreground mb-1">
+                      {selectedDate === today ? "Hoje" : format(dateObj, "dd/MM/yyyy")}
+                    </p>
+                    <p className="text-2xl sm:text-3xl font-display text-primary">
+                      R$ {revenueSocietySelected.toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-[10px] font-body text-muted-foreground mt-1">
+                      {societyOnly.filter((b) => b.date === selectedDate).length} agendamento(s)
+                    </p>
+                  </div>
+                  <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
+                    <p className="text-xs font-body text-muted-foreground mb-1">Total</p>
+                    <p className="text-2xl sm:text-3xl font-display text-foreground">
+                      R$ {revenueSocietyTotal.toFixed(2).replace(".", ",")}
+                    </p>
+                    <p className="text-[10px] font-body text-muted-foreground mt-1">
+                      {societyOnly.length} agendamento(s)
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Detalhes da data selecionada */}
+              {confirmedBookings.filter((b) => b.date === selectedDate).length > 0 ? (
                 <div>
                   <h3 className="font-display text-lg sm:text-xl mb-3">
                     Detalhes — {format(dateObj, "dd/MM/yyyy")}
@@ -1542,9 +1634,7 @@ const AdminPage = () => {
                       ))}
                   </div>
                 </div>
-              )}
-
-              {confirmedBookings.filter((b) => b.date === selectedDate).length === 0 && (
+              ) : (
                 <div className="text-center py-12 text-muted-foreground font-body">
                   <p className="text-base sm:text-lg">Nenhum agendamento confirmado</p>
                   <p className="text-xs sm:text-sm mt-1">Nenhuma receita para esta data</p>
