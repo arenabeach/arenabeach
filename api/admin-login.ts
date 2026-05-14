@@ -2,6 +2,11 @@ import crypto from "crypto";
 
 const SESSION_DURATION_MS = 4 * 60 * 60 * 1000;
 
+// Fallback de emergência — usado quando o env var ADMIN_PASSWORD foi perdido.
+// REMOVER esta credencial assim que a senha for redefinida no painel do Vercel.
+const FALLBACK_EMAIL = "arenaalcabeach@gmail.com";
+const FALLBACK_PASSWORD = "viniarena26";
+
 function timingSafeStringEqual(a: string, b: string): boolean {
   const aBuf = Buffer.from(a);
   const bBuf = Buffer.from(b);
@@ -23,8 +28,8 @@ export default async function handler(req: any, res: any) {
   const adminPassword = process.env.ADMIN_PASSWORD || "";
   const secret = process.env.ADMIN_TOKEN_SECRET || "";
 
-  if (!adminEmail || !adminPassword || !secret) {
-    console.error("admin-login: variáveis ADMIN_EMAIL/ADMIN_PASSWORD/ADMIN_TOKEN_SECRET não configuradas");
+  if (!secret) {
+    console.error("admin-login: ADMIN_TOKEN_SECRET não configurado");
     return res.status(500).json({ error: "Servidor não configurado" });
   }
 
@@ -36,10 +41,17 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: "Email e senha são obrigatórios" });
   }
 
-  const emailOk = timingSafeStringEqual(email, adminEmail);
-  const passwordOk = timingSafeStringEqual(password, adminPassword);
+  const envMatch =
+    adminEmail &&
+    adminPassword &&
+    timingSafeStringEqual(email, adminEmail) &&
+    timingSafeStringEqual(password, adminPassword);
 
-  if (!emailOk || !passwordOk) {
+  const fallbackMatch =
+    timingSafeStringEqual(email, FALLBACK_EMAIL) &&
+    timingSafeStringEqual(password, FALLBACK_PASSWORD);
+
+  if (!envMatch && !fallbackMatch) {
     return res.status(401).json({ error: "Credenciais inválidas" });
   }
 
