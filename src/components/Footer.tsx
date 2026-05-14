@@ -47,7 +47,7 @@ const Footer = () => {
           <div className="text-center sm:text-left">
             <h4 className="font-display text-base xs:text-lg tracking-wide text-foreground mb-2 xs:mb-3">Cancelamento</h4>
             <div className="space-y-1.5 text-xs xs:text-sm font-body text-muted-foreground">
-              <p>Até 24h antes: <span className="text-foreground/80">sem cobrança</span></p>
+              <p>Até 24h antes: <span className="text-foreground/80">10% do valor</span></p>
               <p>Até 3h antes: <span className="text-foreground/80">50% do valor</span></p>
             </div>
           </div>

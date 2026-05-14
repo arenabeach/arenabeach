@@ -1074,6 +1074,16 @@ const AdminPage = () => {
                             const isManualSelected =
                               manualSlots.courtId === cId && manualSlots.times.includes(time);
 
+                            const handleCancelBooking = (e: React.MouseEvent) => {
+                              e.stopPropagation();
+                              if (!booking) return;
+                              const confirmMsg = isPendente
+                                ? `Cancelar agendamento pendente de ${booking.name}?`
+                                : `Cancelar agendamento CONFIRMADO de ${booking.name}? O horário ficará livre.`;
+                              if (!window.confirm(confirmMsg)) return;
+                              handleStatus(booking.id, "cancelado");
+                            };
+
                             return (
                               <div
                                 key={time}
@@ -1114,6 +1124,15 @@ const AdminPage = () => {
                                 </p>
                                 {isBooked ? (
                                   <div className="mt-0.5">
+                                    <button
+                                      type="button"
+                                      onClick={handleCancelBooking}
+                                      title="Cancelar agendamento"
+                                      aria-label="Cancelar agendamento"
+                                      className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-red-500/90 hover:bg-red-600 text-white flex items-center justify-center shadow-sm transition-colors"
+                                    >
+                                      <X size={10} strokeWidth={3} />
+                                    </button>
                                     <p className="text-[9px] font-body text-foreground truncate font-medium">
                                       {booking.name.split(" ")[0]}
                                     </p>

@@ -906,7 +906,7 @@ const BookingPage = () => {
                         </p>
                         <ul className="text-xs text-muted-foreground font-body space-y-1 leading-relaxed">
                           <li>
-                            <span className="text-foreground/80 font-medium">24h antes</span> do horário do agendamento: sem cobrança de taxas
+                            <span className="text-foreground/80 font-medium">24h antes</span> do horário do agendamento: 10% do valor contratado
                           </li>
                           <li>
                             <span className="text-foreground/80 font-medium">Até 3 horas antes</span> do horário agendado: 50% do valor contratado
