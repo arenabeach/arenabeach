@@ -8,6 +8,8 @@ import { ptBR } from "date-fns/locale";
 import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus, Users, Repeat, Calendar as CalendarOnly, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarUI } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -66,11 +68,13 @@ const AdminPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [tab, setTab] = useState<"quadras" | "lista" | "caixa" | "mensalistas">("quadras");
   const [selectedDate, setSelectedDate] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [selectedMonth, setSelectedMonth] = useState(() => format(new Date(), "yyyy-MM"));
   const [manualBooking, setManualBooking] = useState<{ courtId: string; courtName: string; times: string[] } | null>(null);
   const [manualSlots, setManualSlots] = useState<{ courtId: string; times: string[] }>({ courtId: "", times: [] });
   const [manualName, setManualName] = useState("");
   const [manualPhone, setManualPhone] = useState("");
   const [manualSport, setManualSport] = useState<Sport | null>(null);
+  const [manualPrice, setManualPrice] = useState("");
   const [manualSubmitting, setManualSubmitting] = useState(false);
   const [blockedSlots, setBlockedSlots] = useState<Record<string, Set<string>>>({});
   const [recurringBlockedSlots, setRecurringBlockedSlots] = useState<Record<string, Set<string>>>({});
@@ -492,11 +496,19 @@ const AdminPage = () => {
     setManualName("");
     setManualPhone("");
     setManualSport(null);
+    setManualPrice("");
   };
 
   const handleManualBooking = async () => {
     if (!manualBooking || !manualName.trim() || !manualPhone.trim()) {
       toast.error("Preencha nome e telefone!");
+      return;
+    }
+    const priceNum = manualPrice.trim()
+      ? parseFloat(manualPrice.replace(",", "."))
+      : undefined;
+    if (manualPrice.trim() && (!Number.isFinite(priceNum) || (priceNum as number) < 0)) {
+      toast.error("Valor inválido!");
       return;
     }
     setManualSubmitting(true);
@@ -509,6 +521,7 @@ const AdminPage = () => {
         time: manualBooking.times.join(", "),
         name: manualName.trim(),
         phone: manualPhone,
+        price: priceNum,
       });
       await updateBookingStatus(booking.id, "confirmado");
       await refreshBookings();
@@ -655,6 +668,8 @@ const AdminPage = () => {
 
   // Calcular receita de um booking confirmado
   const getBookingRevenue = (b: Booking): number => {
+    // Valor digitado manualmente pelo admin no momento da reserva avulsa.
+    if (b.price != null && b.price > 0) return b.price;
     // Mensalista com preço manual: o valor é por MÊS,
     // então divide pelo número de agendamentos do mensalista NESSE mês.
     if (b.monthlySubscriberId) {
@@ -707,6 +722,37 @@ const AdminPage = () => {
   const revenueSocietySelected = sumRevenue(societyOnly.filter((b) => b.date === selectedDate));
   const revenueSocietyTotal = sumRevenue(societyOnly);
 
+  // Receita do mês selecionado (Caixa: substitui o "Total" e alimenta o histórico)
+  const inSelectedMonth = (b: Booking) => b.date.slice(0, 7) === selectedMonth;
+  const monthGeneralBookings = confirmedBookings.filter(inSelectedMonth);
+  const monthCourtsBookings = courtsOnly.filter(inSelectedMonth);
+  const monthSocietyBookings = societyOnly.filter(inSelectedMonth);
+  const revenueMonthGeneral = sumRevenue(monthGeneralBookings);
+  const revenueMonthCourts = sumRevenue(monthCourtsBookings);
+  const revenueMonthSociety = sumRevenue(monthSocietyBookings);
+
+  // Histórico mensal: agrupa todos os confirmados por YYYY-MM
+  const monthlyHistory = (() => {
+    const groups = new Map<string, { general: Booking[]; courts: Booking[]; society: Booking[] }>();
+    confirmedBookings.forEach((b) => {
+      const key = b.date.slice(0, 7);
+      if (!groups.has(key)) groups.set(key, { general: [], courts: [], society: [] });
+      const g = groups.get(key)!;
+      g.general.push(b);
+      if (isSocietyBooking(b)) g.society.push(b);
+      else g.courts.push(b);
+    });
+    return Array.from(groups.entries())
+      .map(([ym, g]) => ({
+        ym,
+        total: sumRevenue(g.general),
+        courts: sumRevenue(g.courts),
+        society: sumRevenue(g.society),
+        count: g.general.length,
+      }))
+      .sort((a, b) => b.ym.localeCompare(a.ym));
+  })();
+
   // Receita por quadra (apenas as 5 quadras, sem society)
   const revenueByCourtSelected = courtIds
     .filter((cId) => cId !== "society")
@@ -747,6 +793,19 @@ const AdminPage = () => {
     const d = new Date(dateObj);
     d.setDate(d.getDate() + 1);
     setSelectedDate(format(d, "yyyy-MM-dd"));
+  };
+
+  // Month navigation (Caixa)
+  const monthObj = new Date(parseInt(selectedMonth.slice(0, 4), 10), parseInt(selectedMonth.slice(5, 7), 10) - 1, 1);
+  const prevMonth = () => {
+    const d = new Date(monthObj);
+    d.setMonth(d.getMonth() - 1);
+    setSelectedMonth(format(d, "yyyy-MM"));
+  };
+  const nextMonth = () => {
+    const d = new Date(monthObj);
+    d.setMonth(d.getMonth() + 1);
+    setSelectedMonth(format(d, "yyyy-MM"));
   };
 
   // Login screen
@@ -937,12 +996,28 @@ const AdminPage = () => {
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl bg-card border border-border min-w-0 justify-center">
-                  <CalendarIcon size={14} className="text-primary shrink-0" />
-                  <span className="font-body text-xs sm:text-sm font-medium text-foreground whitespace-nowrap">
-                    {format(dateObj, "dd 'de' MMM, yyyy", { locale: ptBR })}
-                  </span>
-                </div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl bg-card border border-border hover:border-primary/50 transition-colors min-w-0 justify-center"
+                    >
+                      <CalendarIcon size={14} className="text-primary shrink-0" />
+                      <span className="font-body text-xs sm:text-sm font-medium text-foreground whitespace-nowrap">
+                        {format(dateObj, "dd 'de' MMM, yyyy", { locale: ptBR })}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="center">
+                    <CalendarUI
+                      mode="single"
+                      selected={dateObj}
+                      onSelect={(d) => { if (d) setSelectedDate(format(d, "yyyy-MM-dd")); }}
+                      locale={ptBR}
+                      className="pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
                 <button
                   onClick={nextDate}
                   className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all btn-animate"
@@ -1226,6 +1301,44 @@ const AdminPage = () => {
                   );
                 })}
               </div>
+
+              {/* Date navigator (footer) */}
+              <div className="flex items-center justify-center gap-2 sm:gap-3 pt-2">
+                <button
+                  onClick={prevDate}
+                  className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all btn-animate"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl bg-card border border-border hover:border-primary/50 transition-colors min-w-0 justify-center"
+                    >
+                      <CalendarIcon size={14} className="text-primary shrink-0" />
+                      <span className="font-body text-xs sm:text-sm font-medium text-foreground whitespace-nowrap">
+                        {format(dateObj, "dd 'de' MMM, yyyy", { locale: ptBR })}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="center">
+                    <CalendarUI
+                      mode="single"
+                      selected={dateObj}
+                      onSelect={(d) => { if (d) setSelectedDate(format(d, "yyyy-MM-dd")); }}
+                      locale={ptBR}
+                      className="pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+                <button
+                  onClick={nextDate}
+                  className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all btn-animate"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
             </div>
           )}
 
@@ -1473,14 +1586,52 @@ const AdminPage = () => {
                 >
                   <ChevronLeft size={16} />
                 </button>
-                <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl bg-card border border-border min-w-0 justify-center">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl bg-card border border-border hover:border-primary/50 transition-colors min-w-0 justify-center"
+                    >
+                      <CalendarIcon size={14} className="text-primary shrink-0" />
+                      <span className="font-body text-xs sm:text-sm font-medium text-foreground whitespace-nowrap">
+                        {format(dateObj, "dd 'de' MMM, yyyy", { locale: ptBR })}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="center">
+                    <CalendarUI
+                      mode="single"
+                      selected={dateObj}
+                      onSelect={(d) => { if (d) setSelectedDate(format(d, "yyyy-MM-dd")); }}
+                      locale={ptBR}
+                      className="pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+                <button
+                  onClick={nextDate}
+                  className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all btn-animate"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* Month navigator (Caixa) */}
+              <div className="flex items-center justify-center gap-2 sm:gap-3">
+                <button
+                  onClick={prevMonth}
+                  className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all btn-animate"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg sm:rounded-xl bg-primary/10 border border-primary/30 min-w-0 justify-center">
                   <CalendarIcon size={14} className="text-primary shrink-0" />
-                  <span className="font-body text-xs sm:text-sm font-medium text-foreground whitespace-nowrap">
-                    {format(dateObj, "dd 'de' MMM, yyyy", { locale: ptBR })}
+                  <span className="font-body text-xs sm:text-sm font-semibold text-foreground whitespace-nowrap capitalize">
+                    {format(monthObj, "MMMM 'de' yyyy", { locale: ptBR })}
                   </span>
                 </div>
                 <button
-                  onClick={nextDate}
+                  onClick={nextMonth}
                   className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-all btn-animate"
                 >
                   <ChevronRight size={16} />
@@ -1514,12 +1665,14 @@ const AdminPage = () => {
                     </p>
                   </div>
                   <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
-                    <p className="text-xs font-body text-muted-foreground mb-1">Total geral</p>
+                    <p className="text-xs font-body text-muted-foreground mb-1 capitalize">
+                      {format(monthObj, "MMMM 'de' yyyy", { locale: ptBR })}
+                    </p>
                     <p className="text-2xl sm:text-3xl font-display text-foreground">
-                      R$ {revenueTotal.toFixed(2).replace(".", ",")}
+                      R$ {revenueMonthGeneral.toFixed(2).replace(".", ",")}
                     </p>
                     <p className="text-[10px] font-body text-muted-foreground mt-1">
-                      {confirmedBookings.length} agendamento(s)
+                      {monthGeneralBookings.length} agendamento(s)
                     </p>
                   </div>
                 </div>
@@ -1552,12 +1705,14 @@ const AdminPage = () => {
                     </p>
                   </div>
                   <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
-                    <p className="text-xs font-body text-muted-foreground mb-1">Total</p>
+                    <p className="text-xs font-body text-muted-foreground mb-1 capitalize">
+                      {format(monthObj, "MMMM 'de' yyyy", { locale: ptBR })}
+                    </p>
                     <p className="text-2xl sm:text-3xl font-display text-foreground">
-                      R$ {revenueCourtsTotal.toFixed(2).replace(".", ",")}
+                      R$ {revenueMonthCourts.toFixed(2).replace(".", ",")}
                     </p>
                     <p className="text-[10px] font-body text-muted-foreground mt-1">
-                      {courtsOnly.length} agendamento(s)
+                      {monthCourtsBookings.length} agendamento(s)
                     </p>
                   </div>
                 </div>
@@ -1616,12 +1771,14 @@ const AdminPage = () => {
                     </p>
                   </div>
                   <div className="glass-card rounded-xl p-4 sm:p-5 text-center">
-                    <p className="text-xs font-body text-muted-foreground mb-1">Total</p>
+                    <p className="text-xs font-body text-muted-foreground mb-1 capitalize">
+                      {format(monthObj, "MMMM 'de' yyyy", { locale: ptBR })}
+                    </p>
                     <p className="text-2xl sm:text-3xl font-display text-foreground">
-                      R$ {revenueSocietyTotal.toFixed(2).replace(".", ",")}
+                      R$ {revenueMonthSociety.toFixed(2).replace(".", ",")}
                     </p>
                     <p className="text-[10px] font-body text-muted-foreground mt-1">
-                      {societyOnly.length} agendamento(s)
+                      {monthSocietyBookings.length} agendamento(s)
                     </p>
                   </div>
                 </div>
@@ -1657,6 +1814,69 @@ const AdminPage = () => {
                 <div className="text-center py-12 text-muted-foreground font-body">
                   <p className="text-base sm:text-lg">Nenhum agendamento confirmado</p>
                   <p className="text-xs sm:text-sm mt-1">Nenhuma receita para esta data</p>
+                </div>
+              )}
+
+              {/* ─── HISTÓRICO MENSAL ─── */}
+              {monthlyHistory.length > 0 && (
+                <div>
+                  <h3 className="font-display text-lg sm:text-xl mb-3 flex items-center gap-2">
+                    <CalendarIcon size={18} className="text-foreground/70" /> Histórico Mensal
+                  </h3>
+                  <div className="space-y-2">
+                    {monthlyHistory.map((m) => {
+                      const [yStr, mStr] = m.ym.split("-");
+                      const mLabel = format(
+                        new Date(parseInt(yStr, 10), parseInt(mStr, 10) - 1, 1),
+                        "MMMM 'de' yyyy",
+                        { locale: ptBR }
+                      );
+                      const isCurrent = m.ym === selectedMonth;
+                      return (
+                        <button
+                          key={m.ym}
+                          type="button"
+                          onClick={() => setSelectedMonth(m.ym)}
+                          className={cn(
+                            "w-full text-left glass-card rounded-xl p-3 sm:p-4 transition-all",
+                            isCurrent
+                              ? "border-2 border-primary/60 shadow-sm"
+                              : "hover:border-primary/30"
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="min-w-0">
+                              <p className="font-body font-semibold text-sm sm:text-base text-foreground capitalize">
+                                {mLabel}
+                              </p>
+                              <p className="text-[10px] sm:text-xs font-body text-muted-foreground mt-0.5">
+                                {m.count} agendamento(s) confirmado(s)
+                              </p>
+                            </div>
+                            <p className="font-display text-lg sm:text-xl text-emerald-500 shrink-0">
+                              R$ {m.total.toFixed(2).replace(".", ",")}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3 sm:gap-4 mt-2 pt-2 border-t border-border/40 text-[11px] sm:text-xs font-body">
+                            <div className="flex items-center gap-1.5">
+                              <LayoutGrid size={12} className="text-primary" />
+                              <span className="text-muted-foreground">Quadras:</span>
+                              <span className="font-medium text-foreground">
+                                R$ {m.courts.toFixed(2).replace(".", ",")}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <Users size={12} className="text-palm" />
+                              <span className="text-muted-foreground">Society:</span>
+                              <span className="font-medium text-foreground">
+                                R$ {m.society.toFixed(2).replace(".", ",")}
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
@@ -1948,6 +2168,21 @@ const AdminPage = () => {
                   type="tel"
                   maxLength={15}
                 />
+              </div>
+              <div>
+                <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">
+                  Valor (R$) <span className="font-normal text-muted-foreground">— opcional</span>
+                </label>
+                <Input
+                  value={manualPrice}
+                  onChange={(e) => setManualPrice(e.target.value.replace(/[^\d.,]/g, ""))}
+                  placeholder="Ex.: 90,00"
+                  className="h-10 font-body rounded-xl text-sm"
+                  inputMode="decimal"
+                />
+                <p className="text-[10px] font-body text-muted-foreground mt-1">
+                  Se deixar em branco, o sistema usa o valor padrão da quadra.
+                </p>
               </div>
               <div className="flex gap-2 pt-1">
                 <Button
