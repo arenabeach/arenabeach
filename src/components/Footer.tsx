@@ -24,8 +24,8 @@ const Footer = () => {
               <a href="tel:+5583999828597" className="flex items-center justify-center sm:justify-start gap-2 hover:text-primary transition-colors">
                 <Phone className="w-3.5 h-3.5 flex-shrink-0" /> (83) 99982-8597
               </a>
-              <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center sm:justify-start gap-2 hover:text-primary transition-colors">
-                <Instagram className="w-3.5 h-3.5 flex-shrink-0" /> @alcabeacharena
+              <a href="https://www.instagram.com/arenaalcabeach" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center sm:justify-start gap-2 hover:text-primary transition-colors">
+                <Instagram className="w-3.5 h-3.5 flex-shrink-0" /> @arenaalcabeach
               </a>
               <a href="mailto:arenaalcabeach@gmail.com" className="flex items-center justify-center sm:justify-start gap-2 hover:text-primary transition-colors">
                 <Mail className="w-3.5 h-3.5 flex-shrink-0" /> arenaalcabeach@gmail.com
