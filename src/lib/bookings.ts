@@ -148,14 +148,14 @@ export const isTimeSlotBooked = async (
 };
 
 // Busca todos os horários ocupados de uma quadra em uma data (para evitar múltiplas queries).
-// Pendentes velhos (PIX expirado) são ignorados.
+// Pendentes velhos (PIX expirado) são ignorados — EXCETO mensalistas, que sempre bloqueiam.
 export const getBookedSlots = async (
   courtId: string,
   date: string
 ): Promise<Set<string>> => {
   const { data, error } = await supabase
     .from("bookings")
-    .select("time, status, created_at")
+    .select("time, status, created_at, monthly_subscriber_id")
     .eq("court_id", courtId)
     .eq("date", date)
     .neq("status", "cancelado");
@@ -168,7 +168,8 @@ export const getBookedSlots = async (
   const ttlCutoff = Date.now() - PENDING_TTL_MINUTES * 60 * 1000;
   const slots = new Set<string>();
   (data || []).forEach((row) => {
-    if (row.status === "pendente") {
+    // Pendente de PIX expira após o TTL; mensalista (mesmo pendente) nunca expira.
+    if (row.status === "pendente" && !row.monthly_subscriber_id) {
       const createdMs = new Date(row.created_at as string).getTime();
       if (Number.isFinite(createdMs) && createdMs < ttlCutoff) return;
     }
@@ -180,12 +181,14 @@ export const getBookedSlots = async (
 // Busca todos os horários ocupados de TODAS as quadras em uma data.
 // Pendentes mais velhos que PENDING_TTL_MINUTES são considerados abandonados
 // (o PIX do Mercado Pago já expirou) e não bloqueiam o slot.
+// Mensalistas são exceção: mesmo pendentes (pagamento não confirmado) sempre
+// bloqueiam o horário para o público, em qualquer mês futuro.
 export const getAllBookedSlots = async (
   date: string
 ): Promise<Record<string, Set<string>>> => {
   const { data, error } = await supabase
     .from("bookings")
-    .select("court_id, time, status, created_at")
+    .select("court_id, time, status, created_at, monthly_subscriber_id")
     .eq("date", date)
     .neq("status", "cancelado");
 
@@ -197,7 +200,8 @@ export const getAllBookedSlots = async (
   const ttlCutoff = Date.now() - PENDING_TTL_MINUTES * 60 * 1000;
   const result: Record<string, Set<string>> = {};
   (data || []).forEach((row) => {
-    if (row.status === "pendente") {
+    // Pendente de PIX expira após o TTL; mensalista (mesmo pendente) nunca expira.
+    if (row.status === "pendente" && !row.monthly_subscriber_id) {
       const createdMs = new Date(row.created_at as string).getTime();
       if (Number.isFinite(createdMs) && createdMs < ttlCutoff) return;
     }
