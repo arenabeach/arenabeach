@@ -84,7 +84,7 @@ const BookingPage = () => {
   const [selectedTimes, setSelectedTimes] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedDuration, setSelectedDuration] = useState<DurationOption | null>(null);
   const [selectedSport, setSelectedSport] = useState<Sport | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<string | null>(null);
@@ -194,10 +194,32 @@ const BookingPage = () => {
     }, 5000); // Verifica a cada 5 segundos
   }, []);
 
-  // Limpar polling e cancelar booking pendente ao desmontar
+  // Refs sempre atualizadas com o valor mais recente — usadas pelo cleanup de
+  // desmontagem real (abaixo), que não pode depender de closures de render.
+  const pendingBookingIdRef = useRef<string | null>(null);
+  const pixStatusRef = useRef<string | null>(null);
+  useEffect(() => { pendingBookingIdRef.current = pendingBookingId; }, [pendingBookingId]);
+  useEffect(() => { pixStatusRef.current = pixStatus; }, [pixStatus]);
+
+  const sendCancelBeacon = (bookingId: string) => {
+    const payload = JSON.stringify({ bookingId });
+    const blob = new Blob([payload], { type: "application/json" });
+    navigator.sendBeacon("/api/cancel-booking", blob);
+  };
+
+  // Limpar polling e cancelar booking pendente ao desmontar de verdade.
+  // Cobre navegação interna do SPA (setinha "Voltar", logo/menu da Navbar,
+  // botão voltar do navegador) — nenhum desses dispara "beforeunload", só
+  // desmonta o componente. Deps vazias garantem que isso só roda no unmount
+  // real, então lemos os valores mais atuais pelas refs (não pelo closure).
   useEffect(() => {
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      const id = pendingBookingIdRef.current;
+      const status = pixStatusRef.current;
+      if (id && status !== "approved") {
+        sendCancelBeacon(id);
+      }
     };
   }, []);
 
@@ -210,9 +232,7 @@ const BookingPage = () => {
   useEffect(() => {
     const cancelOnLeave = () => {
       if (pendingBookingId && pixStatus !== "approved") {
-        const payload = JSON.stringify({ bookingId: pendingBookingId });
-        const blob = new Blob([payload], { type: "application/json" });
-        navigator.sendBeacon("/api/cancel-booking", blob);
+        sendCancelBeacon(pendingBookingId);
       }
     };
     window.addEventListener("beforeunload", cancelOnLeave);
@@ -237,7 +257,8 @@ const BookingPage = () => {
     toast.success("Agendamento cancelado. O horário foi liberado.");
   };
 
-  const handleGoToStep2 = () => {
+  // Passo 1 -> 2: data/esporte/horário confirmados, avança para escolha de quadra
+  const handleGoToStep2 = async () => {
     if (!date || selectedTimes.length === 0) {
       toast.error("Selecione data e horário!");
       return;
@@ -250,18 +271,6 @@ const BookingPage = () => {
       toast.error("O tempo mínimo de reserva é 1 hora (selecione pelo menos 2 horários)!");
       return;
     }
-    setStep(2);
-  };
-
-  const handleGoToStep3 = async () => {
-    if (!name.trim()) {
-      toast.error("Informe seu nome!");
-      return;
-    }
-    if (!isValidPhone(phone)) {
-      toast.error("Informe um telefone válido com DDD!");
-      return;
-    }
     // Recarregar slots antes de mostrar as quadras
     if (dateStr) {
       setLoadingSlots(true);
@@ -270,7 +279,33 @@ const BookingPage = () => {
       setBlockedSlotsData(blocked);
       setLoadingSlots(false);
     }
+    setStep(2);
+  };
+
+  // Passo 2 -> 3: quadra (e duração, se society) confirmada, avança para os dados do cliente
+  const handleGoToStep3 = () => {
+    if (!selectedCourt) {
+      toast.error("Selecione a quadra!");
+      return;
+    }
+    if (isSociety && !selectedDuration) {
+      toast.error("Selecione a duração!");
+      return;
+    }
     setStep(3);
+  };
+
+  // Passo 3 -> 4: dados do cliente confirmados, avança para o resumo e pagamento PIX
+  const handleGoToStep4 = () => {
+    if (!name.trim()) {
+      toast.error("Informe seu nome!");
+      return;
+    }
+    if (!isValidPhone(phone)) {
+      toast.error("Informe um telefone válido com DDD!");
+      return;
+    }
+    setStep(4);
   };
 
   const handleSelectCourt = (courtId: string) => {
@@ -408,7 +443,7 @@ const BookingPage = () => {
     window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${message}`, "_blank");
   };
 
-  const stepLabels = ["Data e Horário", "Seus Dados", "Quadra e Pagamento"];
+  const stepLabels = ["Data e Horário", "Quadra", "Seus Dados", "Pagamento"];
 
   return (
     <div className="min-h-screen bg-background">
@@ -442,7 +477,7 @@ const BookingPage = () => {
 
           {/* Steps indicator */}
           <div className="flex items-center gap-1 xs:gap-1.5 sm:gap-2 mb-6 xs:mb-8 sm:mb-10 overflow-x-auto">
-            {[1, 2, 3].map((s) => (
+            {[1, 2, 3, 4].map((s) => (
               <div key={s} className="flex items-center gap-2">
                 <div
                   className={cn(
@@ -462,7 +497,7 @@ const BookingPage = () => {
                 )}>
                   {stepLabels[s - 1]}
                 </span>
-                {s < 3 && <div className={cn("w-8 h-0.5 mx-1", s < step ? "bg-palm" : "bg-muted")} />}
+                {s < 4 && <div className={cn("w-8 h-0.5 mx-1", s < step ? "bg-palm" : "bg-muted")} />}
               </div>
             ))}
           </div>
@@ -629,65 +664,8 @@ const BookingPage = () => {
             </motion.div>
           )}
 
-          {/* Step 2: Customer Info */}
+          {/* Step 2: Court Selection + Availability */}
           {step === 2 && (
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="space-y-6"
-            >
-              <div>
-                <label className="font-body font-semibold text-sm mb-2 block text-foreground">
-                  Seu nome completo
-                </label>
-                <Input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Digite seu nome completo"
-                  className="h-12 font-body rounded-xl"
-                  maxLength={100}
-                />
-              </div>
-              <div>
-                <label className="font-body font-semibold text-sm mb-2 block text-foreground">
-                  WhatsApp (com DDD)
-                </label>
-                <Input
-                  value={phone}
-                  onChange={(e) => setPhone(formatPhone(e.target.value))}
-                  placeholder="(11) 99999-9999"
-                  className="h-12 font-body rounded-xl"
-                  type="tel"
-                  maxLength={15}
-                />
-                {phone && !isValidPhone(phone) && (
-                  <p className="text-xs text-destructive font-body mt-1">
-                    Informe um número com DDD válido
-                  </p>
-                )}
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => setStep(1)}
-                  className="flex-1 h-12 font-body rounded-xl btn-animate"
-                >
-                  Voltar
-                </Button>
-                <Button
-                  onClick={handleGoToStep3}
-                  disabled={!name.trim() || !isValidPhone(phone)}
-                  className="flex-1 h-12 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl btn-animate hover:shadow-primary/20"
-                >
-                  Continuar
-                </Button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Step 3: Court Selection + Availability + Payment */}
-          {step === 3 && (
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -838,6 +816,89 @@ const BookingPage = () => {
                 </motion.div>
               )}
 
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => { setStep(1); setSelectedCourt(null); setSelectedDuration(null); }}
+                  className="flex-1 h-12 font-body rounded-xl btn-animate"
+                >
+                  Voltar
+                </Button>
+                <Button
+                  onClick={handleGoToStep3}
+                  disabled={!selectedCourt || (isSociety && !selectedDuration)}
+                  className="flex-1 h-12 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl btn-animate hover:shadow-primary/20"
+                >
+                  Continuar
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Step 3: Customer Info */}
+          {step === 3 && (
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="space-y-6"
+            >
+              <div>
+                <label className="font-body font-semibold text-sm mb-2 block text-foreground">
+                  Seu nome completo
+                </label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Digite seu nome completo"
+                  className="h-12 font-body rounded-xl"
+                  maxLength={100}
+                />
+              </div>
+              <div>
+                <label className="font-body font-semibold text-sm mb-2 block text-foreground">
+                  WhatsApp (com DDD)
+                </label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(formatPhone(e.target.value))}
+                  placeholder="(11) 99999-9999"
+                  className="h-12 font-body rounded-xl"
+                  type="tel"
+                  maxLength={15}
+                />
+                {phone && !isValidPhone(phone) && (
+                  <p className="text-xs text-destructive font-body mt-1">
+                    Informe um número com DDD válido
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setStep(2)}
+                  className="flex-1 h-12 font-body rounded-xl btn-animate"
+                >
+                  Voltar
+                </Button>
+                <Button
+                  onClick={handleGoToStep4}
+                  disabled={!name.trim() || !isValidPhone(phone)}
+                  className="flex-1 h-12 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl btn-animate hover:shadow-primary/20"
+                >
+                  Continuar
+                </Button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Step 4: Summary + Payment */}
+          {step === 4 && (
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="space-y-6"
+            >
               {/* Booking Summary (show after court is selected) */}
               {selectedCourt && (!isSociety || selectedDuration) && (
                 <motion.div
@@ -1027,7 +1088,7 @@ const BookingPage = () => {
                 <div className="flex gap-3">
                   <Button
                     variant="outline"
-                    onClick={() => { setStep(2); setSelectedCourt(null); setSelectedDuration(null); }}
+                    onClick={() => setStep(3)}
                     className="flex-1 h-12 font-body rounded-xl btn-animate"
                   >
                     Voltar
