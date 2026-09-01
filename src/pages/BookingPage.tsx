@@ -21,7 +21,7 @@ import {
   sports,
   formatSlotRange,
 } from "@/lib/bookings";
-import type { DurationOption, Sport } from "@/lib/bookings";
+import type { Sport } from "@/lib/bookings";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { toast } from "sonner";
@@ -85,7 +85,6 @@ const BookingPage = () => {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [selectedDuration, setSelectedDuration] = useState<DurationOption | null>(null);
   const [selectedSport, setSelectedSport] = useState<Sport | null>(null);
   const [selectedCourt, setSelectedCourt] = useState<string | null>(null);
   const [bookedSlots, setBookedSlots] = useState<Record<string, Set<string>>>({});
@@ -144,9 +143,11 @@ const BookingPage = () => {
     ? calcSocietyPrice(selectedTimes.length)
     : selectedTimes.length * QUADRA_PRICE_PER_SLOT;
 
-  // Preço final (após escolher quadra)
+  // Preço final (após escolher quadra) — pro Society sempre calculado pelos horários
+  // realmente selecionados na grade, nunca por um valor de duração separado (senão o
+  // cliente pode reservar mais tempo do que paga, ou vice-versa).
   const totalPrice = isSociety
-    ? (selectedDuration?.price || "R$ 100")
+    ? formatBRL(calcSocietyPrice(selectedTimes.length))
     : selectedCourt
     ? formatBRL(parseInt((courtPrices[selectedCourt] || "R$ 0").replace(/\D/g, ""), 10) * selectedTimes.length / 2)
     : formatBRL(previewTotal);
@@ -271,7 +272,6 @@ const BookingPage = () => {
     setPixData(null);
     setPixStatus(null);
     setSelectedCourt(null);
-    setSelectedDuration(null);
     setSelectedTimes([]);
     setStep(1);
     toast.success("Agendamento cancelado. O horário foi liberado.");
@@ -310,10 +310,6 @@ const BookingPage = () => {
       toast.error("O tempo mínimo de reserva é 1 hora (selecione pelo menos 2 horários seguidos)!");
       return;
     }
-    if (isSociety && !selectedDuration) {
-      toast.error("Selecione a duração!");
-      return;
-    }
     setStep(3);
   };
 
@@ -323,7 +319,6 @@ const BookingPage = () => {
   const handleSelectTimeInCourt = (courtId: string, t: string) => {
     if (selectedCourt !== courtId) {
       setSelectedCourt(courtId);
-      setSelectedDuration(null);
       setSelectedTimes([t]);
       return;
     }
@@ -345,8 +340,8 @@ const BookingPage = () => {
 
   // Calcula o valor numérico do total
   const getTotalAmount = (): number => {
-    if (isSociety && selectedDuration) {
-      return parseFloat(selectedDuration.price.replace(/[^\d,]/g, "").replace(",", "."));
+    if (isSociety) {
+      return calcSocietyPrice(selectedTimes.length);
     }
     if (selectedCourt) {
       return parseInt((courtPrices[selectedCourt] || "0").replace(/\D/g, ""), 10) * selectedTimes.length / 2;
@@ -357,10 +352,6 @@ const BookingPage = () => {
   const handleConfirmBooking = async () => {
     if (!date || selectedTimes.length === 0 || !name || !phone || !selectedCourt) {
       toast.error("Preencha todos os campos!");
-      return;
-    }
-    if (isSociety && !selectedDuration) {
-      toast.error("Selecione a duração!");
       return;
     }
 
@@ -448,9 +439,7 @@ const BookingPage = () => {
       ? `${sorted[0]} às ${toTime(minutesArr[minutesArr.length - 1] + 30)}`
       : sorted.map(formatSlotRange).join(", ");
 
-    const durationLabel = isSociety
-      ? selectedDuration?.label || ""
-      : formatDuration(selectedTimes.length);
+    const durationLabel = formatDuration(selectedTimes.length);
     const sportInfo = !isSociety && selectedSport ? `\nEsporte: ${selectedSport}` : "";
     const dateLabel = format(date, "dd/MM/yyyy (EEEE)", { locale: ptBR });
 
@@ -556,7 +545,7 @@ const BookingPage = () => {
                     <Calendar
                       mode="single"
                       selected={date}
-                      onSelect={(d) => { setDate(d); setSelectedTimes([]); setSelectedSport(null); setSelectedCourt(null); setSelectedDuration(null); }}
+                      onSelect={(d) => { setDate(d); setSelectedTimes([]); setSelectedSport(null); setSelectedCourt(null); }}
                       disabled={(d) => d < new Date(new Date().setHours(0,0,0,0)) || d > addDays(new Date(), 30)}
                       className="pointer-events-auto"
                     />
@@ -574,7 +563,7 @@ const BookingPage = () => {
                     {sports.map((sport) => (
                       <button
                         key={sport}
-                        onClick={() => { setSelectedSport(sport); setSelectedTimes([]); setSelectedCourt(null); setSelectedDuration(null); }}
+                        onClick={() => { setSelectedSport(sport); setSelectedTimes([]); setSelectedCourt(null); }}
                         className={cn(
                           "py-3 sm:py-4 px-2 rounded-xl text-xs sm:text-sm font-body font-medium transition-all duration-200 text-center",
                           selectedSport === sport
@@ -751,29 +740,47 @@ const BookingPage = () => {
                   <label className="font-body font-semibold text-sm mb-3 block text-foreground">
                     Duração
                   </label>
+                  <p className="text-xs text-muted-foreground font-body mb-2">
+                    Atalho: ajusta os horários marcados acima pra essa duração exata.
+                  </p>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {societyDurations.map((opt) => (
-                      <button
-                        key={opt.duration}
-                        onClick={() => setSelectedDuration(opt)}
-                        className={cn(
-                          "py-4 px-4 rounded-xl text-sm font-body font-medium transition-all duration-200 text-left",
-                          selectedDuration?.duration === opt.duration
-                            ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 scale-[1.02]"
-                            : "bg-card border border-border hover:border-primary/50 hover:bg-primary/5"
-                        )}
-                      >
-                        <span className="block font-semibold">{opt.label}</span>
-                        <span className={cn(
-                          "text-xs mt-0.5 block",
-                          selectedDuration?.duration === opt.duration
-                            ? "text-primary-foreground/80"
-                            : "text-primary"
-                        )}>
-                          {opt.price}
-                        </span>
-                      </button>
-                    ))}
+                    {societyDurations.map((opt) => {
+                      const isCurrent = selectedTimes.length === opt.slots;
+                      return (
+                        <button
+                          key={opt.duration}
+                          onClick={() => {
+                            const sorted = [...selectedTimes].sort();
+                            const startTime = sorted[0] || getAvailableSlotsForCourt("society")[0];
+                            if (!startTime) return;
+                            const startIdx = timeSlots.indexOf(startTime);
+                            const window = timeSlots.slice(startIdx, startIdx + opt.slots);
+                            const fits =
+                              window.length === opt.slots &&
+                              window.every((t) => !isSlotBooked("society", t) && !isPastForToday(t));
+                            if (!fits) {
+                              toast.error(`Não há ${opt.label} livres a partir de ${startTime}. Escolha outro horário de início.`);
+                              return;
+                            }
+                            setSelectedTimes(window);
+                          }}
+                          className={cn(
+                            "py-4 px-4 rounded-xl text-sm font-body font-medium transition-all duration-200 text-left",
+                            isCurrent
+                              ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 scale-[1.02]"
+                              : "bg-card border border-border hover:border-primary/50 hover:bg-primary/5"
+                          )}
+                        >
+                          <span className="block font-semibold">{opt.label}</span>
+                          <span className={cn(
+                            "text-xs mt-0.5 block",
+                            isCurrent ? "text-primary-foreground/80" : "text-primary"
+                          )}>
+                            {opt.price}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </motion.div>
               )}
@@ -781,14 +788,14 @@ const BookingPage = () => {
               <div className="flex gap-3">
                 <Button
                   variant="outline"
-                  onClick={() => { setStep(1); setSelectedCourt(null); setSelectedDuration(null); setSelectedTimes([]); }}
+                  onClick={() => { setStep(1); setSelectedCourt(null); setSelectedTimes([]); }}
                   className="flex-1 h-12 font-body rounded-xl btn-animate"
                 >
                   Voltar
                 </Button>
                 <Button
                   onClick={handleGoToStep3}
-                  disabled={!selectedCourt || selectedTimes.length < 2 || (isSociety && !selectedDuration)}
+                  disabled={!selectedCourt || selectedTimes.length < 2}
                   className="flex-1 h-12 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl btn-animate hover:shadow-primary/20"
                 >
                   Continuar
@@ -862,7 +869,7 @@ const BookingPage = () => {
               className="space-y-6"
             >
               {/* Booking Summary (show after court is selected) */}
-              {selectedCourt && (!isSociety || selectedDuration) && (
+              {selectedCourt && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -889,18 +896,10 @@ const BookingPage = () => {
                         <span className="text-muted-foreground">Horário(s)</span>
                         <span className="font-medium text-foreground text-right max-w-[60%]">{selectedTimes.join(", ")}</span>
                       </div>
-                      {!isSociety && (
-                        <div className="flex justify-between py-2 border-b border-border/50">
-                          <span className="text-muted-foreground">Duração</span>
-                          <span className="font-medium text-foreground">{formatDuration(selectedTimes.length)}</span>
-                        </div>
-                      )}
-                      {isSociety && selectedDuration && (
-                        <div className="flex justify-between py-2 border-b border-border/50">
-                          <span className="text-muted-foreground">Duração</span>
-                          <span className="font-medium text-foreground">{selectedDuration.label}</span>
-                        </div>
-                      )}
+                      <div className="flex justify-between py-2 border-b border-border/50">
+                        <span className="text-muted-foreground">Duração</span>
+                        <span className="font-medium text-foreground">{formatDuration(selectedTimes.length)}</span>
+                      </div>
                       <div className="flex justify-between py-2 border-b border-border/50">
                         <span className="text-muted-foreground">Nome</span>
                         <span className="font-medium text-foreground">{name}</span>
@@ -1057,7 +1056,7 @@ const BookingPage = () => {
                   </Button>
                   <Button
                     onClick={handleConfirmBooking}
-                    disabled={!selectedCourt || (isSociety && !selectedDuration) || submitting}
+                    disabled={!selectedCourt || submitting}
                     className="flex-1 h-12 font-body font-semibold bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl btn-animate"
                   >
                     {submitting ? (
