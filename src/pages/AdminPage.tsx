@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd, calcTenisPrice } from "@/lib/bookings";
+import { getBookings, updateBookingStatus, deleteBooking, addManualBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd, calcTenisPrice } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { loginAdmin, isSessionValid, clearSession } from "@/lib/auth";
 import { format, getDay, getDaysInMonth, addDays } from "date-fns";
@@ -513,7 +513,7 @@ const AdminPage = () => {
     }
     setManualSubmitting(true);
     try {
-      const booking = await addBooking({
+      await addManualBooking({
         courtId: manualBooking.courtId,
         courtName: manualBooking.courtName,
         sport: manualBooking.courtId !== "society" ? (manualSport || undefined) : undefined,
@@ -523,7 +523,6 @@ const AdminPage = () => {
         phone: manualPhone,
         price: priceNum,
       });
-      await updateBookingStatus(booking.id, "confirmado");
       await refreshBookings();
       setManualBooking(null);
       clearManualSlots();

@@ -43,6 +43,69 @@ function isValidSignature(req: any): boolean {
   return crypto.timingSafeEqual(expectedBuf, hashBuf);
 }
 
+const PENDING_TTL_MINUTES = 30;
+
+// Confirma a reserva de um pagamento aprovado — só se o valor pago cobre o
+// valor da reserva e o horário continua livre. (Mesma lógica em check-payment.ts;
+// se mudar aqui, mude lá.)
+async function confirmBookingFromPayment(supabase: any, payment: any): Promise<void> {
+  const bookingId = String(payment.external_reference || "");
+  if (!bookingId) return;
+
+  const { data: booking, error } = await supabase
+    .from("bookings")
+    .select("id, court_id, date, time, status, price, mp_payment_id")
+    .eq("id", bookingId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!booking || booking.status === "confirmado") return;
+
+  if (String(booking.mp_payment_id || "") !== String(payment.id)) {
+    console.error(`Pagamento ${payment.id} não pertence ao booking ${bookingId} — ignorado`);
+    return;
+  }
+
+  const paid = Number(payment.transaction_amount);
+  const due = Number(booking.price);
+  if (!Number.isFinite(paid) || !Number.isFinite(due) || due <= 0 || paid + 0.001 < due) {
+    console.error(`Pagamento ${payment.id}: valor pago (${paid}) menor que o devido (${due}) — booking ${bookingId} NÃO confirmado`);
+    return;
+  }
+
+  // Se a reserva foi cancelada (cliente fechou a tela e pagou depois), só volta
+  // a valer se ninguém pegou o horário nesse meio-tempo.
+  if (booking.status === "cancelado") {
+    const { data: others, error: othersErr } = await supabase
+      .from("bookings")
+      .select("id, time, status, created_at, monthly_subscriber_id")
+      .eq("court_id", booking.court_id)
+      .eq("date", booking.date)
+      .neq("status", "cancelado")
+      .neq("id", booking.id);
+    if (othersErr) throw othersErr;
+    const ttlCutoff = Date.now() - PENDING_TTL_MINUTES * 60 * 1000;
+    const mine = new Set(String(booking.time).split(", "));
+    const conflict = (others || []).some((row: any) => {
+      if (row.status === "pendente" && !row.monthly_subscriber_id) {
+        const createdMs = new Date(row.created_at).getTime();
+        if (Number.isFinite(createdMs) && createdMs < ttlCutoff) return false;
+      }
+      return String(row.time).split(", ").some((t) => mine.has(t));
+    });
+    if (conflict) {
+      console.error(`ATENÇÃO: pagamento ${payment.id} aprovado para booking ${bookingId} já cancelado e com horário ocupado por outra reserva — precisa de estorno manual`);
+      return;
+    }
+  }
+
+  const { error: updErr } = await supabase
+    .from("bookings")
+    .update({ status: "confirmado" })
+    .eq("id", booking.id)
+    .eq("status", booking.status);
+  if (updErr) throw updErr;
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -54,51 +117,33 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { type, data } = req.body;
+    const { type, data } = req.body || {};
 
-    // Mercado Pago envia notificações de pagamento
-    if (type === "payment" && data?.id) {
-      // Buscar detalhes do pagamento no Mercado Pago
+    if (type === "payment" && data?.id && /^\d{1,20}$/.test(String(data.id))) {
       const mpResponse = await fetch(
         `https://api.mercadopago.com/v1/payments/${data.id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${mpAccessToken}`,
-          },
-        }
+        { headers: { Authorization: `Bearer ${mpAccessToken}` } }
       );
 
       if (!mpResponse.ok) {
+        // 5xx faz o Mercado Pago reenviar a notificação mais tarde — com 200 a
+        // confirmação se perdia de vez.
         console.error("Erro ao buscar pagamento:", await mpResponse.text());
-        return res.status(200).send("OK");
+        return res.status(502).send("Erro ao consultar pagamento");
       }
 
       const payment = await mpResponse.json();
 
-      // Se o pagamento foi aprovado, atualizar o booking
       if (payment.status === "approved") {
-        const bookingId = payment.external_reference;
-
-        if (bookingId) {
-          const supabase = createClient(supabaseUrl, supabaseKey);
-          const { error } = await supabase
-            .from("bookings")
-            .update({ status: "confirmado" })
-            .eq("id", bookingId);
-
-          if (error) {
-            console.error("Erro ao atualizar booking:", error);
-          } else {
-            console.log(`Booking ${bookingId} confirmado via PIX`);
-          }
-        }
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        await confirmBookingFromPayment(supabase, payment);
       }
     }
 
-    // Sempre retornar 200 para o Mercado Pago não reenviar
     return res.status(200).send("OK");
   } catch (error) {
+    // Erro nosso (banco fora, etc.): pede reenvio em vez de engolir.
     console.error("Erro no webhook:", error);
-    return res.status(200).send("OK");
+    return res.status(500).send("Erro interno");
   }
 }

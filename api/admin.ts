@@ -58,9 +58,58 @@ export default async function handler(req: any, res: any) {
 
   try {
     switch (op) {
+      case "getBookings": {
+        // O Supabase devolve no máximo 1000 linhas por consulta — busca em páginas.
+        const PAGE = 1000;
+        const all: any[] = [];
+        for (let from = 0; ; from += PAGE) {
+          const { data, error } = await supabase
+            .from("bookings")
+            .select("*")
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (error) throw error;
+          all.push(...(data || []));
+          if (!data || data.length < PAGE) break;
+        }
+        return res.status(200).json({ data: all });
+      }
+
+      case "addManualBooking": {
+        const { booking } = args;
+        if (!booking?.courtId || !booking?.date || !booking?.time || !booking?.name || !booking?.phone) {
+          return res.status(400).json({ error: "Dados do agendamento incompletos" });
+        }
+        const price = booking.price == null ? null : Number(booking.price);
+        if (price !== null && (!Number.isFinite(price) || price < 0)) {
+          return res.status(400).json({ error: "Valor inválido" });
+        }
+        const { data, error } = await supabase
+          .from("bookings")
+          .insert({
+            court_id: booking.courtId,
+            court_name: booking.courtName,
+            sport: booking.sport || null,
+            date: booking.date,
+            time: booking.time,
+            name: booking.name,
+            phone: booking.phone,
+            status: "confirmado",
+            price,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        return res.status(200).json({ data });
+      }
+
       case "updateBookingStatus": {
         const { id, status } = args;
         if (!id || !status) return res.status(400).json({ error: "id e status são obrigatórios" });
+        if (!["pendente", "confirmado", "cancelado"].includes(status)) {
+          return res.status(400).json({ error: "status inválido" });
+        }
         const { error } = await supabase.from("bookings").update({ status }).eq("id", id);
         if (error) throw error;
         return res.status(200).json({ ok: true });

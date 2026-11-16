@@ -1,10 +1,6 @@
 import { supabase } from "./supabase";
 import { getSessionToken } from "./auth";
 
-// Janela de tempo (em minutos) em que um booking pendente continua bloqueando o slot.
-// Depois disso ele é considerado abandonado (PIX já expirou no MP) e ignorado.
-const PENDING_TTL_MINUTES = 30;
-
 async function adminCall<T = unknown>(op: string, args: Record<string, unknown> = {}): Promise<T> {
   const token = getSessionToken();
   if (!token) {
@@ -62,43 +58,54 @@ const mapRow = (row: Record<string, unknown>): Booking => ({
   price: row.price != null ? Number(row.price) : undefined,
 });
 
+// Lista completa (com nome/telefone) — só para o admin, via rota autenticada.
 export const getBookings = async (): Promise<Booking[]> => {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error("Erro ao buscar agendamentos:", error);
-    return [];
-  }
+  const { data } = await adminCall<{ data: Record<string, unknown>[] }>("getBookings");
   return (data || []).map(mapRow);
 };
 
-export const addBooking = async (
+// Agendamento avulso criado pelo admin: já entra confirmado.
+export const addManualBooking = async (
   booking: Omit<Booking, "id" | "createdAt" | "status">
 ): Promise<Booking> => {
-  const { data, error } = await supabase
-    .from("bookings")
-    .insert({
-      court_id: booking.courtId,
-      court_name: booking.courtName,
-      sport: booking.sport || null,
-      date: booking.date,
-      time: booking.time,
-      name: booking.name,
-      phone: booking.phone,
-      status: "pendente",
-      price: booking.price ?? null,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.error("Erro ao criar agendamento:", error);
-    throw new Error("Erro ao criar agendamento");
-  }
+  const { data } = await adminCall<{ data: Record<string, unknown> }>(
+    "addManualBooking",
+    { booking }
+  );
   return mapRow(data);
+};
+
+export interface PixBookingResult {
+  bookingId: string;
+  amount: number;
+  paymentId: string;
+  qrCode: string;
+  qrCodeBase64: string;
+  ticketUrl: string;
+  expiresAt: string;
+}
+
+// Reserva pública: o servidor valida disponibilidade, calcula o valor, cria o
+// booking pendente e a cobrança PIX. O navegador nunca manda o preço.
+export const createBookingWithPix = async (input: {
+  courtId: string;
+  date: string;
+  times: string[];
+  name: string;
+  phone: string;
+  sport?: string;
+}): Promise<PixBookingResult> => {
+  const res = await fetch("/api/create-pix", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  let data: Record<string, unknown> = {};
+  try { data = await res.json(); } catch { /* noop */ }
+  if (!res.ok) {
+    throw new Error((data.error as string) || "Erro ao gerar PIX. Tente novamente.");
+  }
+  return data as unknown as PixBookingResult;
 };
 
 export const updateBookingStatus = async (
@@ -125,89 +132,17 @@ export const cancelPendingBooking = async (bookingId: string): Promise<void> => 
   }
 };
 
-export const isTimeSlotBooked = async (
-  courtId: string,
-  date: string,
-  time: string
-): Promise<boolean> => {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("time")
-    .eq("court_id", courtId)
-    .eq("date", date)
-    .neq("status", "cancelado");
-
-  if (error) {
-    console.error("Erro ao verificar disponibilidade:", error);
-    return false;
-  }
-
-  return (data || []).some((row) =>
-    (row.time as string).split(", ").includes(time)
-  );
-};
-
-// Busca todos os horários ocupados de uma quadra em uma data (para evitar múltiplas queries).
-// Pendentes velhos (PIX expirado) são ignorados — EXCETO mensalistas, que sempre bloqueiam.
-export const getBookedSlots = async (
-  courtId: string,
-  date: string
-): Promise<Set<string>> => {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("time, status, created_at, monthly_subscriber_id")
-    .eq("court_id", courtId)
-    .eq("date", date)
-    .neq("status", "cancelado");
-
-  if (error) {
-    console.error("Erro ao buscar slots ocupados:", error);
-    return new Set();
-  }
-
-  const ttlCutoff = Date.now() - PENDING_TTL_MINUTES * 60 * 1000;
-  const slots = new Set<string>();
-  (data || []).forEach((row) => {
-    // Pendente de PIX expira após o TTL; mensalista (mesmo pendente) nunca expira.
-    if (row.status === "pendente" && !row.monthly_subscriber_id) {
-      const createdMs = new Date(row.created_at as string).getTime();
-      if (Number.isFinite(createdMs) && createdMs < ttlCutoff) return;
-    }
-    (row.time as string).split(", ").forEach((t) => slots.add(t));
-  });
-  return slots;
-};
-
-// Busca todos os horários ocupados de TODAS as quadras em uma data.
-// Pendentes mais velhos que PENDING_TTL_MINUTES são considerados abandonados
-// (o PIX do Mercado Pago já expirou) e não bloqueiam o slot.
-// Mensalistas são exceção: mesmo pendentes (pagamento não confirmado) sempre
-// bloqueiam o horário para o público, em qualquer mês futuro.
+// Horários ocupados de TODAS as quadras em uma data. Vem de /api/availability,
+// que já aplica a regra do TTL de pendentes e não expõe dados de clientes.
 export const getAllBookedSlots = async (
   date: string
 ): Promise<Record<string, Set<string>>> => {
-  const { data, error } = await supabase
-    .from("bookings")
-    .select("court_id, time, status, created_at, monthly_subscriber_id")
-    .eq("date", date)
-    .neq("status", "cancelado");
-
-  if (error) {
-    console.error("Erro ao buscar slots:", error);
-    return {};
-  }
-
-  const ttlCutoff = Date.now() - PENDING_TTL_MINUTES * 60 * 1000;
+  const res = await fetch(`/api/availability?date=${encodeURIComponent(date)}`);
+  if (!res.ok) throw new Error("Erro ao buscar disponibilidade");
+  const { booked } = (await res.json()) as { booked: Record<string, string[]> };
   const result: Record<string, Set<string>> = {};
-  (data || []).forEach((row) => {
-    // Pendente de PIX expira após o TTL; mensalista (mesmo pendente) nunca expira.
-    if (row.status === "pendente" && !row.monthly_subscriber_id) {
-      const createdMs = new Date(row.created_at as string).getTime();
-      if (Number.isFinite(createdMs) && createdMs < ttlCutoff) return;
-    }
-    const courtId = row.court_id as string;
-    if (!result[courtId]) result[courtId] = new Set();
-    (row.time as string).split(", ").forEach((t) => result[courtId].add(t));
+  Object.entries(booked || {}).forEach(([courtId, times]) => {
+    result[courtId] = new Set(times);
   });
   return result;
 };

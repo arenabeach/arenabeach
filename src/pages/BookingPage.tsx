@@ -13,7 +13,7 @@ import {
   courtNames,
   courtPrices,
   timeSlots,
-  addBooking,
+  createBookingWithPix,
   cancelPendingBooking,
   getAllBookedSlots,
   getBlockedSlots,
@@ -111,6 +111,7 @@ const BookingPage = () => {
         setBookedSlots(booked);
         setBlockedSlotsData(blocked);
       })
+      .catch(() => toast.error("Erro ao carregar os horários. Recarregue a página."))
       .finally(() => setLoadingSlots(false));
   }, [dateStr]);
 
@@ -219,6 +220,14 @@ const BookingPage = () => {
           setPendingBookingId(null);
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           toast.success("Pagamento confirmado! Seu agendamento foi aprovado.");
+        } else if (data.status === "paid_not_confirmed") {
+          // Pagou, mas o servidor não conseguiu confirmar o horário (ex.: a
+          // reserva tinha sido cancelada e outra pessoa pegou o horário).
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          toast.error(
+            "Recebemos seu pagamento, mas não foi possível confirmar o horário. Fale com a arena pelo WhatsApp.",
+            { duration: 20000 }
+          );
         }
       } catch {
         // Silently retry on next interval
@@ -302,10 +311,16 @@ const BookingPage = () => {
     // Recarregar slots antes de mostrar as quadras
     if (dateStr) {
       setLoadingSlots(true);
-      const [slots, blocked] = await Promise.all([getAllBookedSlots(dateStr), getBlockedSlots(dateStr)]);
-      setBookedSlots(slots);
-      setBlockedSlotsData(blocked);
-      setLoadingSlots(false);
+      try {
+        const [slots, blocked] = await Promise.all([getAllBookedSlots(dateStr), getBlockedSlots(dateStr)]);
+        setBookedSlots(slots);
+        setBlockedSlotsData(blocked);
+      } catch {
+        toast.error("Erro ao carregar os horários. Tente novamente.");
+        return;
+      } finally {
+        setLoadingSlots(false);
+      }
     }
     setSelectedTimes([]);
     setSelectedCourt(null);
@@ -350,20 +365,6 @@ const BookingPage = () => {
     setStep(4);
   };
 
-  // Calcula o valor numérico do total
-  const getTotalAmount = (): number => {
-    if (isSociety) {
-      return calcSocietyPrice(selectedTimes.length);
-    }
-    if (isTenis) {
-      return calcTenisPrice(selectedTimes);
-    }
-    if (selectedCourt) {
-      return parseInt((courtPrices[selectedCourt] || "0").replace(/\D/g, ""), 10) * selectedTimes.length / 2;
-    }
-    return selectedTimes.length * QUADRA_PRICE_PER_SLOT;
-  };
-
   const handleConfirmBooking = async () => {
     if (!date || selectedTimes.length === 0 || !name || !phone || !selectedCourt) {
       toast.error("Preencha todos os campos!");
@@ -373,57 +374,31 @@ const BookingPage = () => {
     setSubmitting(true);
 
     try {
-      // Verificar disponibilidade em tempo real antes de confirmar
-      const [freshSlots, freshBlocked] = await Promise.all([getAllBookedSlots(dateStr), getBlockedSlots(dateStr)]);
-      const unavailable = selectedTimes.filter((t) => freshSlots[selectedCourt]?.has(t) || freshBlocked[selectedCourt]?.has(t));
-      if (unavailable.length > 0) {
-        toast.error(`Horário(s) ${unavailable.join(", ")} acabou de ser reservado! Escolha outro horário.`);
-        setBookedSlots(freshSlots);
-        setBlockedSlotsData(freshBlocked);
-        setSubmitting(false);
+      // O servidor confere a disponibilidade, calcula o valor, cria a reserva
+      // pendente e gera o PIX — tudo numa chamada só.
+      let pixResult;
+      try {
+        pixResult = await createBookingWithPix({
+          courtId: selectedCourt,
+          date: dateStr,
+          times: selectedTimes,
+          name: name.trim(),
+          phone,
+          sport: isSociety ? undefined : (selectedSport || undefined),
+        });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Erro ao criar agendamento. Tente novamente.");
+        // Horário pode ter sido pego por outra pessoa: atualiza a grade.
+        try {
+          const [freshSlots, freshBlocked] = await Promise.all([getAllBookedSlots(dateStr), getBlockedSlots(dateStr)]);
+          setBookedSlots(freshSlots);
+          setBlockedSlotsData(freshBlocked);
+        } catch { /* ignore */ }
         return;
       }
+      setPendingBookingId(pixResult.bookingId);
 
-      const timeDisplay = selectedTimes.join(", ");
-
-      // 1. Criar o booking no Supabase
-      const booking = await addBooking({
-        courtId: selectedCourt,
-        courtName,
-        sport: isSociety ? undefined : (selectedSport || undefined),
-        date: dateStr,
-        time: timeDisplay,
-        name: name.trim(),
-        phone,
-      });
-      setPendingBookingId(booking.id);
-
-      // 2. Criar cobrança PIX no Mercado Pago
-      const amount = getTotalAmount();
-      const description = `Arena Beach - ${courtName} - ${format(date, "dd/MM/yyyy")} - ${timeDisplay}`;
-
-      const pixResponse = await fetch("/api/create-pix", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          bookingId: booking.id,
-          amount,
-          description,
-          payerName: name.trim(),
-        }),
-      });
-
-      const pixResult = await pixResponse.json();
-
-      if (!pixResponse.ok) {
-        const baseMsg = pixResult.error || "Erro ao gerar PIX. Tente novamente.";
-        const fullMsg = pixResult.details ? `${baseMsg}: ${pixResult.details}` : baseMsg;
-        toast.error(fullMsg);
-        setSubmitting(false);
-        return;
-      }
-
-      // 3. Mostrar QR Code e iniciar polling
+      // Mostrar QR Code e iniciar polling
       setPixData(pixResult);
       setPixStatus("pending");
       startPaymentPolling(pixResult.paymentId);
