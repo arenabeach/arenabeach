@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, addManualBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd, calcTenisPrice } from "@/lib/bookings";
+import { getBookings, updateBookingStatus, deleteBooking, addManualBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd, calcTenisPrice, subscriberSessionPrice, subscriberValueForSessions, countWeekdaysInMonth } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { loginAdmin, isSessionValid, clearSession } from "@/lib/auth";
 import { format, getDay, getDaysInMonth, addDays } from "date-fns";
@@ -658,6 +658,19 @@ const AdminPage = () => {
     });
   })();
 
+  // Sessões (não canceladas) e valor a cobrar de um mensalista num mês.
+  // Mês em que o dia da semana cai 5 vezes tem uma sessão a mais e custa mais.
+  const getSubscriberMonth = (sub: MonthlySubscriber, monthYM: string) => {
+    const sessions = bookings.filter(
+      (b) =>
+        b.monthlySubscriberId === sub.id &&
+        b.status !== "cancelado" &&
+        b.date.slice(0, 7) === monthYM
+    ).length;
+    return { sessions, value: subscriberValueForSessions(sub, sessions) };
+  };
+  const formatMoney = (v: number) => `R$ ${v.toFixed(2).replace(".", ",")}`;
+
   const stats = {
     total: bookings.length,
     pendente: bookings.filter((b) => b.status === "pendente").length,
@@ -669,19 +682,13 @@ const AdminPage = () => {
   const getBookingRevenue = (b: Booking): number => {
     // Valor digitado manualmente pelo admin no momento da reserva avulsa.
     if (b.price != null && b.price > 0) return b.price;
-    // Mensalista com preço manual: o valor é por MÊS,
-    // então divide pelo número de agendamentos do mensalista NESSE mês.
+    // Mensalista: o valor cadastrado vale 4 semanas, então cada sessão tem um
+    // valor fixo. Mês de 5 semanas tem uma sessão a mais e rende mais.
     if (b.monthlySubscriberId) {
       const sub = subscribers.find((s) => s.id === b.monthlySubscriberId);
-      if (sub && sub.price > 0) {
-        const bookingMonth = b.date.slice(0, 7);
-        const monthBookingCount = bookings.filter(
-          (x) =>
-            x.monthlySubscriberId === sub.id &&
-            x.status !== "cancelado" &&
-            x.date.slice(0, 7) === bookingMonth
-        ).length;
-        if (monthBookingCount > 0) return sub.price / monthBookingCount;
+      if (sub) {
+        const perSession = subscriberSessionPrice(sub);
+        if (perSession > 0) return perSession;
       }
     }
     if (b.courtId === "society") {
@@ -1407,6 +1414,7 @@ const AdminPage = () => {
                           );
                           const total = g.confirmed + g.pending;
                           const allPaid = g.pending === 0 && g.confirmed > 0;
+                          const monthInfo = getSubscriberMonth(g.sub, g.monthYM);
                           return (
                             <motion.div
                               key={g.key}
@@ -1445,10 +1453,11 @@ const AdminPage = () => {
                                 </div>
                                 <div className="flex items-center justify-between gap-2 flex-wrap">
                                   <div className="text-xs sm:text-sm font-body text-muted-foreground">
-                                    <span>Valor mensal: </span>
+                                    <span>Valor do mês: </span>
                                     <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                                      R$ {g.sub.price.toFixed(2).replace(".", ",")}
+                                      {formatMoney(monthInfo.value)}
                                     </span>
+                                    <span> ({monthInfo.sessions} {monthInfo.sessions === 1 ? "sessão" : "sessões"})</span>
                                     <span className="mx-2">•</span>
                                     <span>{g.confirmed}/{total} sessões pagas</span>
                                   </div>
@@ -1919,10 +1928,7 @@ const AdminPage = () => {
                       (b) => b.monthlySubscriberId === sub.id && b.status !== "cancelado"
                     );
                     const linkedCount = subBookings.length;
-                    const startMonthCount = subBookings.filter(
-                      (b) => b.date.slice(0, 7) === sub.month
-                    ).length;
-                    const perSession = startMonthCount > 0 ? sub.price / startMonthCount : 0;
+                    const perSession = subscriberSessionPrice(sub);
 
                     const monthCounts = new Map<string, { confirmed: number; pending: number }>();
                     subBookings.forEach((b) => {
@@ -2015,9 +2021,9 @@ const AdminPage = () => {
                                 {sub.times.length > 0 && `${sub.times[0]} às ${formatSlotRange(sub.times[sub.times.length - 1]).split(" - ")[1]}`}
                               </div>
                               <div>
-                                <span className="text-foreground/70 font-medium">Valor mensal: </span>
+                                <span className="text-foreground/70 font-medium">Valor (mês de 4 semanas): </span>
                                 <span className="text-emerald-500 font-semibold">
-                                  R$ {sub.price.toFixed(2).replace(".", ",")}
+                                  {formatMoney(sub.price)}
                                 </span>
                               </div>
                               <div className="sm:col-span-2">
@@ -2046,6 +2052,7 @@ const AdminPage = () => {
                                     );
                                     const total = counts.confirmed + counts.pending;
                                     const allPaid = counts.pending === 0 && counts.confirmed > 0;
+                                    const monthValue = subscriberValueForSessions(sub, total);
                                     return (
                                       <div
                                         key={ym}
@@ -2060,6 +2067,11 @@ const AdminPage = () => {
                                             {allPaid ? "confirmado" : "pendente"}
                                             {total !== 1 ? "s" : ""}
                                           </span>
+                                          {monthValue > 0 && (
+                                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold ml-2">
+                                              {formatMoney(monthValue)}
+                                            </span>
+                                          )}
                                         </div>
                                         {allPaid ? (
                                           <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 px-2 py-1 rounded-md text-[10px] bg-emerald-100 dark:bg-emerald-900/30">
@@ -2353,7 +2365,7 @@ const AdminPage = () => {
               {/* Valor mensal */}
               <div>
                 <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">
-                  Valor mensal (R$)
+                  Valor do mês de 4 semanas (R$)
                 </label>
                 <Input
                   value={monthlyPrice}
@@ -2363,7 +2375,7 @@ const AdminPage = () => {
                   inputMode="decimal"
                 />
                 <p className="text-[10px] text-muted-foreground font-body mt-1">
-                  Valor combinado com o mensalista. Será distribuído por sessão no caixa.
+                  Valor combinado para 4 semanas. Mês em que o dia cai 5 vezes cobra a sessão a mais na mesma proporção.
                 </p>
               </div>
 
@@ -2380,6 +2392,25 @@ const AdminPage = () => {
                   <p className="text-muted-foreground">
                     Cliente: {monthlyName}
                   </p>
+                  {(() => {
+                    const draft = {
+                      price: parseFloat(monthlyPrice.replace(",", ".")) || 0,
+                      weekdays: monthlyWeekdays,
+                    };
+                    const perSession = subscriberSessionPrice(draft);
+                    if (perSession <= 0) return null;
+                    const sessions = countWeekdaysInMonth(monthlyMonth, monthlyWeekdays);
+                    return (
+                      <>
+                        <p className="text-muted-foreground">
+                          Valor por sessão: {formatMoney(perSession)}
+                        </p>
+                        <p className="text-foreground font-medium">
+                          {monthlyMonth.slice(5, 7)}/{monthlyMonth.slice(0, 4)}: {sessions} sessões = {formatMoney(subscriberValueForSessions(draft, sessions))}
+                        </p>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -2451,9 +2482,12 @@ const AdminPage = () => {
                   {sub.sport && ` • ${sub.sport}`}
                 </p>
                 <p className="text-xs">
-                  <span className="text-muted-foreground">Valor mensal: </span>
+                  <span className="text-muted-foreground">Valor do mês: </span>
                   <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                    R$ {sub.price.toFixed(2).replace(".", ",")}
+                    {formatMoney(subscriberValueForSessions(sub, monthBookings.length))}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {" "}({monthBookings.length} {monthBookings.length === 1 ? "sessão" : "sessões"} × {formatMoney(subscriberSessionPrice(sub))})
                   </span>
                 </p>
               </div>

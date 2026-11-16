@@ -394,6 +394,39 @@ const mapSubscriberRow = (row: Record<string, unknown>): MonthlySubscriber => ({
   createdAt: row.created_at as string,
 });
 
+// ---------- Valor do mensalista: mês de 4 x 5 semanas ----------
+// O valor cadastrado (`price`) corresponde a 4 semanas, ou seja, 4 sessões para
+// cada dia da semana escolhido. Mês em que algum dia cai 5 vezes cobra a sessão
+// a mais na mesma proporção (ex.: R$ 200 por 4 sessões → R$ 250 no mês de 5).
+export const WEEKS_IN_BASE_MONTH = 4;
+
+// Valor de UMA sessão do mensalista.
+export const subscriberSessionPrice = (
+  sub: Pick<MonthlySubscriber, "price" | "weekdays">
+): number => {
+  const baseSessions = WEEKS_IN_BASE_MONTH * sub.weekdays.length;
+  if (!(sub.price > 0) || baseSessions === 0) return 0;
+  return sub.price / baseSessions;
+};
+
+// Quantas vezes os dias da semana informados caem no mês "YYYY-MM".
+export const countWeekdaysInMonth = (ym: string, weekdays: number[]): number => {
+  const [y, m] = ym.split("-").map(Number);
+  if (!y || !m) return 0;
+  const daysInMonth = new Date(y, m, 0).getDate();
+  let count = 0;
+  for (let day = 1; day <= daysInMonth; day++) {
+    if (weekdays.includes(new Date(y, m - 1, day).getDay())) count++;
+  }
+  return count;
+};
+
+// Valor a cobrar por `sessions` sessões (arredondado em centavos).
+export const subscriberValueForSessions = (
+  sub: Pick<MonthlySubscriber, "price" | "weekdays">,
+  sessions: number
+): number => Math.round(subscriberSessionPrice(sub) * sessions * 100) / 100;
+
 export const getMonthlySubscribers = async (): Promise<MonthlySubscriber[]> => {
   try {
     const { data } = await adminCall<{ data: Record<string, unknown>[] }>(
