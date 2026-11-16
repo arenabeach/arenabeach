@@ -16,19 +16,21 @@ export default async function handler(req: any, res: any) {
 
   const body = typeof req.body === "string" ? safeParse(req.body) : (req.body || {});
   const bookingId = String(body?.bookingId || "");
-  if (!bookingId) {
-    return res.status(400).json({ error: "bookingId é obrigatório" });
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bookingId)) {
+    return res.status(400).json({ error: "bookingId inválido" });
   }
 
   const { createClient } = await import("@supabase/supabase-js");
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
-  // Só cancela se ainda estiver pendente — não derruba booking confirmado por pagamento.
+  // Só cancela reserva avulsa ainda pendente (PIX não pago). Nunca derruba
+  // booking confirmado nem horário de mensalista — esses só o admin mexe.
   const { error } = await supabase
     .from("bookings")
     .update({ status: "cancelado" })
     .eq("id", bookingId)
-    .eq("status", "pendente");
+    .eq("status", "pendente")
+    .is("monthly_subscriber_id", null);
 
   if (error) {
     console.error("Erro ao cancelar booking:", error);
