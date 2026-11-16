@@ -55,6 +55,14 @@ const courts = [
     players: "10-14 jogadores",
     duration: "1h a 2h",
   },
+  {
+    id: "tenis",
+    name: "Quadra de Tênis",
+    image: courtBeachTennis,
+    price: "R$ 50-70/h",
+    players: "2-4 jogadores",
+    duration: "1h por sessão",
+  },
 ];
 
 const CourtsSection = () => {

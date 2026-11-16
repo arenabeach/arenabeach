@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd } from "@/lib/bookings";
+import { getBookings, updateBookingStatus, deleteBooking, addBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd, calcTenisPrice } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { loginAdmin, isSessionValid, clearSession } from "@/lib/auth";
 import { format, getDay, getDaysInMonth, addDays } from "date-fns";
@@ -692,6 +692,10 @@ const AdminPage = () => {
       if (slots >= 3) return 140;
       return 100;
     }
+    if (b.courtId === "tenis") {
+      // Tênis: preço varia por horário (R$50/h até 18h, R$70/h depois)
+      return calcTenisPrice(b.time.split(", "));
+    }
     // Quadras: R$ 45/h = R$ 22.50 por slot de 30min
     const pricePerHour = parseInt((courtPrices[b.courtId] || "R$ 45").replace(/\D/g, ""), 10);
     const slots = b.time.split(", ").length;
@@ -710,7 +714,7 @@ const AdminPage = () => {
   const revenueSelectedDate = sumRevenue(confirmedBookings.filter((b) => b.date === selectedDate));
   const revenueTotal = sumRevenue(confirmedBookings);
 
-  // Receita só das quadras (quadra-01..05)
+  // Receita só das quadras (quadra-01..05 + Quadra de Tênis), ou seja, tudo que não é Society
   const courtsOnly = confirmedBookings.filter((b) => !isSocietyBooking(b));
   const revenueCourtsToday = sumRevenue(courtsOnly.filter((b) => b.date === today));
   const revenueCourtsSelected = sumRevenue(courtsOnly.filter((b) => b.date === selectedDate));

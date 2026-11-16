@@ -26,7 +26,7 @@ async function adminCall<T = unknown>(op: string, args: Record<string, unknown> 
   return res.json();
 }
 
-export const sports = ["Vôlei", "Beach Tennis", "Futevôlei", "Futebol Society"] as const;
+export const sports = ["Vôlei", "Beach Tennis", "Futevôlei", "Futebol Society", "Tênis"] as const;
 export type Sport = typeof sports[number];
 
 export interface Booking {
@@ -219,6 +219,7 @@ export const courtNames: Record<string, string> = {
   "quadra-04": "Quadra 04",
   "quadra-05": "Quadra 05",
   society: "Campo Society",
+  tenis: "Quadra de Tênis",
 };
 
 export const courtPrices: Record<string, string> = {
@@ -228,6 +229,28 @@ export const courtPrices: Record<string, string> = {
   "quadra-04": "R$ 45",
   "quadra-05": "R$ 45",
   society: "R$ 100",
+};
+
+// =================== QUADRA DE TÊNIS (preço varia por horário) ===================
+// 05:00 às 18:00 = R$ 50/hora · 18:00 às 23:00 = R$ 70/hora
+export const TENIS_DAY_RATE_PER_HOUR = 50;
+export const TENIS_NIGHT_RATE_PER_HOUR = 70;
+const TENIS_NIGHT_START_MIN = 18 * 60; // 18:00
+
+const timeToMinutes = (t: string): number => {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+};
+
+// Soma o preço de uma lista de horários (slots de 30min) de Tênis, aplicando
+// a tarifa diurna (até 18h) ou noturna (18h-23h) de acordo com o horário de
+// início de cada slot.
+export const calcTenisPrice = (times: string[]): number => {
+  return times.reduce((sum, t) => {
+    const isNight = timeToMinutes(t) >= TENIS_NIGHT_START_MIN;
+    const perSlot = (isNight ? TENIS_NIGHT_RATE_PER_HOUR : TENIS_DAY_RATE_PER_HOUR) / 2;
+    return sum + perSlot;
+  }, 0);
 };
 
 export interface DurationOption {
@@ -244,6 +267,7 @@ export const societyDurations: DurationOption[] = [
 ];
 
 export const timeSlots = [
+  "05:00", "05:30",
   "06:00", "06:30", "07:00", "07:30", "08:00", "08:30",
   "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
   "12:00", "12:30", "13:00", "13:30", "14:00", "14:30",

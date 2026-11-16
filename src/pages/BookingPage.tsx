@@ -20,6 +20,9 @@ import {
   societyDurations,
   sports,
   formatSlotRange,
+  calcTenisPrice,
+  TENIS_DAY_RATE_PER_HOUR,
+  TENIS_NIGHT_RATE_PER_HOUR,
 } from "@/lib/bookings";
 import type { Sport } from "@/lib/bookings";
 import Navbar from "@/components/Navbar";
@@ -117,12 +120,17 @@ const BookingPage = () => {
 
   const isSociety = selectedCourt === "society";
   const isSocietySport = selectedSport === "Futebol Society";
+  const isTenis = selectedCourt === "tenis";
+  const isTenisSport = selectedSport === "Tênis";
   const courtName = selectedCourt ? courtNames[selectedCourt] || "" : "";
 
-  // Quadras elegíveis pro esporte escolhido (Society só aparece pra Futebol Society)
+  // Quadras elegíveis pro esporte escolhido (Society só aparece pra Futebol
+  // Society, Quadra de Tênis só aparece pro Tênis)
   const eligibleCourtsForSport = isSocietySport
     ? ["society"]
-    : Object.keys(courtNames).filter((id) => id !== "society");
+    : isTenisSport
+    ? ["tenis"]
+    : Object.keys(courtNames).filter((id) => id !== "society" && id !== "tenis");
   const toMinutes = (t: string): number => {
     const [h, m] = t.split(":").map(Number);
     return h * 60 + m;
@@ -141,13 +149,17 @@ const BookingPage = () => {
   // Preço preview (antes de escolher quadra, usa preço do esporte selecionado)
   const previewTotal = isSocietySport
     ? calcSocietyPrice(selectedTimes.length)
+    : isTenisSport
+    ? calcTenisPrice(selectedTimes)
     : selectedTimes.length * QUADRA_PRICE_PER_SLOT;
 
-  // Preço final (após escolher quadra) — pro Society sempre calculado pelos horários
-  // realmente selecionados na grade, nunca por um valor de duração separado (senão o
-  // cliente pode reservar mais tempo do que paga, ou vice-versa).
+  // Preço final (após escolher quadra) — pro Society e Tênis sempre calculado pelos
+  // horários realmente selecionados na grade, nunca por um valor de duração separado
+  // (senão o cliente pode reservar mais tempo do que paga, ou vice-versa).
   const totalPrice = isSociety
     ? formatBRL(calcSocietyPrice(selectedTimes.length))
+    : isTenis
+    ? formatBRL(calcTenisPrice(selectedTimes))
     : selectedCourt
     ? formatBRL(parseInt((courtPrices[selectedCourt] || "R$ 0").replace(/\D/g, ""), 10) * selectedTimes.length / 2)
     : formatBRL(previewTotal);
@@ -343,6 +355,9 @@ const BookingPage = () => {
     if (isSociety) {
       return calcSocietyPrice(selectedTimes.length);
     }
+    if (isTenis) {
+      return calcTenisPrice(selectedTimes);
+    }
     if (selectedCourt) {
       return parseInt((courtPrices[selectedCourt] || "0").replace(/\D/g, ""), 10) * selectedTimes.length / 2;
     }
@@ -484,6 +499,8 @@ const BookingPage = () => {
           <p className="text-muted-foreground font-body text-xs xs:text-sm sm:text-base mb-4 xs:mb-6 sm:mb-8">
             {isSocietySport ? (
               <>Campo Society: <span className="text-primary font-semibold">R$ {SOCIETY_PRICE_PER_HOUR}/hora</span> — mínimo 1 hora</>
+            ) : isTenisSport ? (
+              <>Quadra de Tênis: <span className="text-primary font-semibold">R$ {TENIS_DAY_RATE_PER_HOUR}/hora</span> (05h-18h) ou <span className="text-primary font-semibold">R$ {TENIS_NIGHT_RATE_PER_HOUR}/hora</span> (18h-23h) — mínimo 1 hora</>
             ) : (
               <>Quadras: <span className="text-primary font-semibold">R$ {QUADRA_PRICE_PER_HOUR}/hora</span> (R$ {QUADRA_PRICE_PER_SLOT.toFixed(2).replace(".", ",")}/30min) — mínimo 1 hora</>
             )}
@@ -578,8 +595,10 @@ const BookingPage = () => {
                 </motion.div>
               )}
 
-              {/* Tabela de preços (referência antes de ir pra escolha de quadra/horário) */}
-              {date && selectedSport && (
+              {/* Tabela de preços (referência antes de ir pra escolha de quadra/horário).
+                  Tênis não entra aqui: o valor depende do horário escolhido, não só da
+                  duração, e isso já fica explicado no texto acima. */}
+              {date && selectedSport && !isTenisSport && (
                 <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
                   <div className="bg-card border border-border/50 rounded-xl p-3">
                     <p className="text-xs font-body font-semibold text-foreground mb-2">
@@ -657,7 +676,8 @@ const BookingPage = () => {
                   const courtsWithSlots = Object.entries(courtNames)
                     .filter(([id]) => {
                       if (selectedSport === "Futebol Society") return id === "society";
-                      return id !== "society";
+                      if (selectedSport === "Tênis") return id === "tenis";
+                      return id !== "society" && id !== "tenis";
                     })
                     .map(([id, cName]) => ({ id, cName, slots: getAvailableSlotsForCourt(id) }))
                     .filter(({ slots }) => slots.length > 0);
@@ -693,7 +713,11 @@ const BookingPage = () => {
                                 <span className="font-body font-semibold text-sm text-foreground">{cName}</span>
                               </div>
                               <span className="text-xs font-body font-semibold text-primary">
-                                {id !== "society" ? `${courtPrices[id]}/hora` : "A partir de R$ 100"}
+                                {id === "society"
+                                  ? "A partir de R$ 100"
+                                  : id === "tenis"
+                                  ? `R$ ${TENIS_DAY_RATE_PER_HOUR}-${TENIS_NIGHT_RATE_PER_HOUR}/hora`
+                                  : `${courtPrices[id]}/hora`}
                               </span>
                             </div>
                             <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 gap-1.5">
