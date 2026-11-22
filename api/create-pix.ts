@@ -230,6 +230,13 @@ export default async function handler(req: any, res: any) {
     }
 
     // ---------- Cobrança PIX ----------
+    // Diz ao Mercado Pago para avisar este site quando o PIX for pago, mesmo que
+    // nenhum webhook tenha sido configurado no painel do MP. A Vercel preenche
+    // VERCEL_PROJECT_PRODUCTION_URL sozinha; PUBLIC_SITE_URL permite forçar outro domínio.
+    const siteUrl = (
+      process.env.PUBLIC_SITE_URL ||
+      (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "")
+    ).replace(/\/+$/, "");
     const nameParts = name.split(/\s+/);
     const [yy, mm, dd] = date.split("-");
     const mpResponse = await fetch("https://api.mercadopago.com/v1/payments", {
@@ -250,6 +257,9 @@ export default async function handler(req: any, res: any) {
           last_name: nameParts.slice(1).join(" ") || "Arena",
         },
         date_of_expiration: new Date(Date.now() + PENDING_TTL_MINUTES * 60 * 1000).toISOString(),
+        ...(siteUrl.startsWith("https://")
+          ? { notification_url: `${siteUrl}/api/webhook-mp?source_news=webhooks` }
+          : {}),
       }),
     });
 

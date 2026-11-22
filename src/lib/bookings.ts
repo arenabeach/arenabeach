@@ -58,11 +58,34 @@ const mapRow = (row: Record<string, unknown>): Booking => ({
   price: row.price != null ? Number(row.price) : undefined,
 });
 
+// Reserva paga pelo PIX cujo horário já tinha sido pego por outra pessoa:
+// o dinheiro entrou, mas a reserva não pôde ser confirmada (precisa devolver).
+export interface PaidConflict {
+  id: string;
+  name: string;
+  phone: string;
+  courtName: string;
+  date: string;
+  time: string;
+  amount: number;
+}
+
 // Lista completa (com nome/telefone) — só para o admin, via rota autenticada.
-export const getBookings = async (): Promise<Booking[]> => {
-  const { data } = await adminCall<{ data: Record<string, unknown>[] }>("getBookings");
-  return (data || []).map(mapRow);
+// O servidor aproveita a chamada pra conferir no Mercado Pago as reservas
+// pagas que ficaram presas em "pendente".
+export const getAdminBookings = async (): Promise<{
+  bookings: Booking[];
+  paidConflicts: PaidConflict[];
+}> => {
+  const { data, paidConflicts } = await adminCall<{
+    data: Record<string, unknown>[];
+    paidConflicts?: PaidConflict[];
+  }>("getBookings");
+  return { bookings: (data || []).map(mapRow), paidConflicts: paidConflicts || [] };
 };
+
+export const getBookings = async (): Promise<Booking[]> =>
+  (await getAdminBookings()).bookings;
 
 // Agendamento avulso criado pelo admin: já entra confirmado.
 export const addManualBooking = async (

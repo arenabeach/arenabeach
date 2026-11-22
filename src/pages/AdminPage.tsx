@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { getBookings, updateBookingStatus, deleteBooking, addManualBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd, calcTenisPrice, subscriberSessionPrice, subscriberValueForSessions, countWeekdaysInMonth } from "@/lib/bookings";
+import { getAdminBookings, updateBookingStatus, deleteBooking, addManualBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd, calcTenisPrice, subscriberSessionPrice, subscriberValueForSessions, countWeekdaysInMonth } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { loginAdmin, isSessionValid, clearSession } from "@/lib/auth";
+import { getPushStatus, enablePush, disablePush, sendTestPush, type PushStatus } from "@/lib/push";
 import { format, getDay, getDaysInMonth, addDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus, Users, Repeat, Calendar as CalendarOnly, Menu } from "lucide-react";
+import { CheckCircle, XCircle, Clock, ArrowLeft, LogOut, Lock, Trash2, Search, ChevronLeft, ChevronRight, CalendarIcon, LayoutGrid, List, Loader2, Plus, X, DollarSign, Ban, Unlock, UserPlus, Users, Repeat, Calendar as CalendarOnly, Menu, Bell, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -98,6 +99,7 @@ const AdminPage = () => {
   const [confirmMonthLoading, setConfirmMonthLoading] = useState(false);
   const [expandedSubs, setExpandedSubs] = useState<Set<string>>(new Set());
   const knownConfirmedIdsRef = useRef<Set<string> | null>(null);
+  const warnedConflictIdsRef = useRef<Set<string>>(new Set());
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -106,10 +108,104 @@ const AdminPage = () => {
     }
   }, []);
 
+  // Torna o painel instalável como app (iPhone: Compartilhar → Adicionar à Tela
+  // de Início). O manifesto só existe nesta página, pra quem instalar o site
+  // público continuar caindo na página inicial.
+  useEffect(() => {
+    const added: HTMLElement[] = [];
+    const addTag = (tag: string, attrs: Record<string, string>) => {
+      const el = document.createElement(tag);
+      Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+      document.head.appendChild(el);
+      added.push(el);
+    };
+    addTag("link", { rel: "manifest", href: "/admin.webmanifest" });
+    addTag("meta", { name: "apple-mobile-web-app-capable", content: "yes" });
+    addTag("meta", { name: "apple-mobile-web-app-title", content: "Arena Admin" });
+    addTag("meta", { name: "mobile-web-app-capable", content: "yes" });
+    return () => added.forEach((el) => el.remove());
+  }, []);
+
+  // ---------- Avisos (notificação no celular/computador) ----------
+  const [pushStatus, setPushStatus] = useState<PushStatus>("unsupported");
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => {
+    if (authenticated) getPushStatus().then(setPushStatus);
+  }, [authenticated]);
+
+  const handlePushButton = async () => {
+    if (pushStatus === "needs-install") {
+      toast.info(
+        "Para receber avisos no iPhone: toque em Compartilhar (quadrado com seta) → \"Adicionar à Tela de Início\". Depois abra o painel pelo ícone Arena Admin e toque em Ativar avisos.",
+        { duration: 15000 }
+      );
+      return;
+    }
+    if (pushStatus === "denied") {
+      toast.error(
+        "As notificações estão bloqueadas neste aparelho. No iPhone: Ajustes → Notificações → Arena Admin. No computador: clique no cadeado ao lado do endereço do site → Notificações → Permitir.",
+        { duration: 15000 }
+      );
+      return;
+    }
+    setPushBusy(true);
+    try {
+      if (pushStatus === "enabled") {
+        const r = await sendTestPush();
+        if (r.sent > 0) {
+          toast.success(`Aviso de teste enviado para ${r.sent} aparelho(s).`);
+        } else {
+          toast.error("Nenhum aparelho recebeu o teste. Desative e ative os avisos de novo.");
+        }
+      } else {
+        await enablePush();
+        setPushStatus("enabled");
+        const r = await sendTestPush();
+        toast.success(
+          r.sent > 0
+            ? "Avisos ativados! Você deve receber uma notificação de teste agora."
+            : "Avisos ativados neste aparelho."
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao ativar os avisos.");
+      setPushStatus(await getPushStatus());
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleDisablePush = async () => {
+    if (!window.confirm("Parar de receber avisos de reserva neste aparelho?")) return;
+    setPushBusy(true);
+    try {
+      await disablePush();
+      toast.success("Avisos desativados neste aparelho.");
+    } catch {
+      toast.error("Erro ao desativar os avisos.");
+    } finally {
+      setPushStatus(await getPushStatus());
+      setPushBusy(false);
+    }
+  };
+
   const refreshBookings = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getBookings();
+      const { bookings: data, paidConflicts } = await getAdminBookings();
+
+      // PIX pago, mas o horário já era de outra pessoa: avisa (uma vez por sessão)
+      // pra devolver o dinheiro ou remarcar com o cliente.
+      paidConflicts
+        .filter((c) => !warnedConflictIdsRef.current.has(c.id))
+        .forEach((c) => {
+          warnedConflictIdsRef.current.add(c.id);
+          const [y, m, d] = c.date.split("-");
+          toast.error(
+            `PIX pago sem horário: ${c.name} (${c.phone}) pagou R$ ${c.amount.toFixed(2).replace(".", ",")} por ${c.courtName} em ${d}/${m}/${y} às ${c.time.split(", ")[0]}, mas o horário já estava ocupado. Devolva o valor ou remarque.`,
+            { duration: Infinity }
+          );
+        });
 
       // Detectar novos agendamentos confirmados (cliente pagou via PIX) e tocar som
       const currentConfirmedIds = new Set(
@@ -906,6 +1002,34 @@ const AdminPage = () => {
               {loading ? <Loader2 size={14} className="animate-spin" /> : <CalendarIcon size={14} />}
               Atualizar
             </Button>
+            {pushStatus !== "unsupported" && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePushButton}
+                disabled={pushBusy}
+                className={cn(
+                  "font-body gap-1.5 rounded-xl text-xs sm:text-sm",
+                  pushStatus === "enabled" && "border-emerald-500/50 text-emerald-600 dark:text-emerald-400"
+                )}
+                title={pushStatus === "enabled" ? "Enviar um aviso de teste" : "Receber aviso a cada reserva paga"}
+              >
+                {pushBusy ? <Loader2 size={14} className="animate-spin" /> : pushStatus === "denied" ? <BellOff size={14} /> : <Bell size={14} />}
+                {pushStatus === "enabled" ? "Testar aviso" : "Ativar avisos"}
+              </Button>
+            )}
+            {pushStatus === "enabled" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDisablePush}
+                disabled={pushBusy}
+                className="font-body rounded-xl text-xs px-2 text-muted-foreground"
+                title="Parar de receber avisos neste aparelho"
+              >
+                <BellOff size={14} />
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
