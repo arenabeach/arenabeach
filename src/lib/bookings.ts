@@ -25,6 +25,15 @@ async function adminCall<T = unknown>(op: string, args: Record<string, unknown> 
 export const sports = ["Vôlei", "Beach Tennis", "Futevôlei", "Futebol Society", "Tênis"] as const;
 export type Sport = typeof sports[number];
 
+// Esportes que cada quadra aceita. Campo Society = só futebol; Quadra de Tênis =
+// só tênis; quadras de areia = vôlei, beach tennis e futevôlei.
+// (Mesma regra em api/create-pix.ts e api/admin.ts.)
+export const sportsForCourt = (courtId: string): Sport[] => {
+  if (courtId === "society") return ["Futebol Society"];
+  if (courtId === "tenis") return ["Tênis"];
+  return ["Vôlei", "Beach Tennis", "Futevôlei"];
+};
+
 export interface Booking {
   id: string;
   courtId: string;

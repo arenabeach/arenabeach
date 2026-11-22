@@ -176,6 +176,12 @@ export default async function handler(req: any, res: any) {
       sport = String(body.sport);
       if (!SPORTS.includes(sport)) return res.status(400).json({ error: "Esporte inválido" });
     }
+    // Esporte tem que combinar com a quadra (mesma regra de src/lib/bookings.ts).
+    const allowedSports =
+      courtId === "tenis" ? ["Tênis"] : ["Vôlei", "Beach Tennis", "Futevôlei"];
+    if (sport && courtId !== "society" && !allowedSports.includes(sport)) {
+      return res.status(400).json({ error: "Esse esporte não é jogado nessa quadra" });
+    }
 
     const amount = calcPrice(courtId, times);
 

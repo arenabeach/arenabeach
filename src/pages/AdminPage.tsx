@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
-import { getAdminBookings, updateBookingStatus, deleteBooking, addManualBooking, Booking, courtNames, courtPrices, timeSlots, sports, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd, calcTenisPrice, subscriberSessionPrice, subscriberValueForSessions, countWeekdaysInMonth } from "@/lib/bookings";
+import { getAdminBookings, updateBookingStatus, deleteBooking, addManualBooking, Booking, courtNames, courtPrices, timeSlots, getBlockedSlots, blockSlot, unblockSlot, blockAllSlots, unblockAllSlots, formatSlotRange, getRecurringBlockedSlots, blockSlotRecurring, unblockSlotRecurring, blockAllSlotsRecurring, unblockAllSlotsRecurring, getMonthlySubscribers, addMonthlySubscriber, deleteMonthlySubscriber, addBookingForSubscriber, ensureSubscriberBookings, endSubscriberAtMonthEnd, calcTenisPrice, sportsForCourt, subscriberSessionPrice, subscriberValueForSessions, countWeekdaysInMonth } from "@/lib/bookings";
 import type { Sport, MonthlySubscriber } from "@/lib/bookings";
 import { loginAdmin, isSessionValid, clearSession } from "@/lib/auth";
 import { getPushStatus, enablePush, disablePush, sendTestPush, type PushStatus } from "@/lib/push";
@@ -452,8 +452,8 @@ const AdminPage = () => {
       setMonthlyTimes([]);
       setMonthlyPrice("");
       toast.success(`Mensalista cadastrado com ${created + extra} agendamento(s) (renovação automática ativa).`);
-    } catch {
-      toast.error("Erro ao criar agendamentos mensais");
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : "Erro ao criar agendamentos mensais");
     } finally {
       setMonthlySubmitting(false);
     }
@@ -591,7 +591,9 @@ const AdminPage = () => {
     setManualBooking({ courtId, courtName, times });
     setManualName("");
     setManualPhone("");
-    setManualSport(null);
+    // Quadra com um esporte só (Tênis) já vem marcada.
+    const allowed = sportsForCourt(courtId);
+    setManualSport(courtId !== "society" && allowed.length === 1 ? allowed[0] : null);
     setManualPrice("");
   };
 
@@ -623,8 +625,8 @@ const AdminPage = () => {
       setManualBooking(null);
       clearManualSlots();
       toast.success("Agendamento criado e confirmado!");
-    } catch {
-      toast.error("Erro ao criar agendamento");
+    } catch (err) {
+      toast.error(err instanceof Error && err.message ? err.message : "Erro ao criar agendamento");
     } finally {
       setManualSubmitting(false);
     }
@@ -2255,7 +2257,7 @@ const AdminPage = () => {
             </div>
 
             <div className="space-y-2 text-sm font-body text-muted-foreground mb-4">
-              <p><span className="font-medium text-foreground">{manualBooking.courtName}</span></p>
+              <p><span className="font-display text-base text-foreground">{manualBooking.courtName}</span></p>
               <p>{format(new Date(selectedDate + "T12:00:00"), "dd 'de' MMM, yyyy", { locale: ptBR })}</p>
               <p>
                 <span className="text-foreground/70">
@@ -2266,11 +2268,11 @@ const AdminPage = () => {
             </div>
 
             <div className="space-y-3">
-              {manualBooking.courtId !== "society" && (
+              {sportsForCourt(manualBooking.courtId).length > 1 && (
                 <div>
                   <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Esporte</label>
                   <div className="grid grid-cols-2 gap-1.5">
-                    {sports.map((sport) => (
+                    {sportsForCourt(manualBooking.courtId).map((sport) => (
                       <button
                         key={sport}
                         onClick={() => setManualSport(sport)}
@@ -2378,7 +2380,11 @@ const AdminPage = () => {
                   {courtIds.map((cId) => (
                     <button
                       key={cId}
-                      onClick={() => setMonthlyCourtId(cId)}
+                      onClick={() => {
+                        setMonthlyCourtId(cId);
+                        const allowed = sportsForCourt(cId);
+                        setMonthlySport(cId !== "society" && allowed.length === 1 ? allowed[0] : null);
+                      }}
                       className={cn(
                         "py-2 rounded-lg text-xs font-body font-medium transition-all",
                         monthlyCourtId === cId
@@ -2393,11 +2399,11 @@ const AdminPage = () => {
               </div>
 
               {/* Esporte (só para quadras, não society) */}
-              {monthlyCourtId && monthlyCourtId !== "society" && (
+              {monthlyCourtId && sportsForCourt(monthlyCourtId).length > 1 && (
                 <div>
                   <label className="font-body font-semibold text-xs mb-1.5 block text-foreground">Esporte</label>
                   <div className="grid grid-cols-2 gap-1.5">
-                    {sports.filter(s => s !== "Futebol Society").map((sport) => (
+                    {sportsForCourt(monthlyCourtId).map((sport) => (
                       <button
                         key={sport}
                         onClick={() => setMonthlySport(sport)}

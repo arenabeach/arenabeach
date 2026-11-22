@@ -256,6 +256,27 @@ async function reconcilePendingPayments(supabase: any): Promise<PaidConflict[]> 
   return conflicts;
 }
 
+// Quadras e esportes aceitos em cada uma (mesma regra de src/lib/bookings.ts).
+const COURT_SPORTS: Record<string, string[]> = {
+  "quadra-01": ["Vôlei", "Beach Tennis", "Futevôlei"],
+  "quadra-02": ["Vôlei", "Beach Tennis", "Futevôlei"],
+  "quadra-03": ["Vôlei", "Beach Tennis", "Futevôlei"],
+  "quadra-04": ["Vôlei", "Beach Tennis", "Futevôlei"],
+  "quadra-05": ["Vôlei", "Beach Tennis", "Futevôlei"],
+  society: ["Futebol Society"],
+  tenis: ["Tênis"],
+};
+
+// Devolve a mensagem de erro, ou null se a combinação quadra/esporte é válida.
+function courtSportError(courtId: unknown, sport: unknown): string | null {
+  const allowed = COURT_SPORTS[String(courtId || "")];
+  if (!allowed) return "Quadra inválida";
+  if (sport && !allowed.includes(String(sport))) {
+    return `Esse esporte não é jogado nessa quadra (aceita: ${allowed.join(", ")})`;
+  }
+  return null;
+}
+
 function safeParse(s: string): any {
   try { return JSON.parse(s); } catch { return {}; }
 }
@@ -321,6 +342,8 @@ export default async function handler(req: any, res: any) {
         if (!booking?.courtId || !booking?.date || !booking?.time || !booking?.name || !booking?.phone) {
           return res.status(400).json({ error: "Dados do agendamento incompletos" });
         }
+        const manualErr = courtSportError(booking.courtId, booking.sport);
+        if (manualErr) return res.status(400).json({ error: manualErr });
         const price = booking.price == null ? null : Number(booking.price);
         if (price !== null && (!Number.isFinite(price) || price < 0)) {
           return res.status(400).json({ error: "Valor inválido" });
@@ -366,6 +389,8 @@ export default async function handler(req: any, res: any) {
       case "addBookingForSubscriber": {
         const { booking, subscriberId } = args;
         if (!booking || !subscriberId) return res.status(400).json({ error: "booking e subscriberId obrigatórios" });
+        const subBookingErr = courtSportError(booking.courtId, booking.sport);
+        if (subBookingErr) return res.status(400).json({ error: subBookingErr });
         const { data, error } = await supabase
           .from("bookings")
           .insert({
@@ -534,6 +559,8 @@ export default async function handler(req: any, res: any) {
       case "addMonthlySubscriber": {
         const { sub } = args;
         if (!sub) return res.status(400).json({ error: "sub é obrigatório" });
+        const subErr = courtSportError(sub.courtId, sub.sport);
+        if (subErr) return res.status(400).json({ error: subErr });
         const { data, error } = await supabase
           .from("monthly_subscribers")
           .insert({
